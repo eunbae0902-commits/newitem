@@ -97,6 +97,14 @@ label.field { display: grid; gap: 4px; font-size: .88rem; color: var(--muted); }
 .book[data-s="reading"] .spine { background: var(--pine); }
 .book[data-s="done"] .spine { background: var(--brass); }
 .book .body { display: grid; gap: 8px; min-width: 0; }
+.book.has-cover { grid-template-columns: 6px 56px 1fr; }
+.book .cover, .cover-pick img { width: 56px; aspect-ratio: 2 / 3; object-fit: cover; border-radius: 4px; border: 1px solid var(--line); background: var(--heat-0); }
+.cover-pick { display: flex; gap: 14px; align-items: center; padding: 12px; border: 1px dashed var(--line); border-radius: 10px; }
+.cover-pick .ph { width: 56px; aspect-ratio: 2 / 3; border-radius: 4px; border: 1px dashed var(--muted); display: grid; place-items: center; color: var(--muted); font: .7rem var(--mono); }
+.cover-pick > div { display: grid; gap: 6px; min-width: 0; flex: 1; }
+#cover-status { font-size: .86rem; color: var(--muted); }
+#cover-status.ok { color: var(--pine); }
+#cover-status.err { color: var(--danger); }
 .chip { display: inline-block; font: 500 .72rem/1 var(--mono); padding: 4px 7px; border-radius: 99px; border: 1px solid var(--line); color: var(--muted); }
 .chip.reading { color: var(--pine); border-color: var(--pine); }
 .chip.done { color: var(--brass); border-color: var(--brass); }
@@ -269,9 +277,17 @@ function shelf() {
   const order = { reading: 0, want: 1, done: 2 };
   const list = [...S.books].sort((a, b) => order[a.status] - order[b.status] || b.added - a.added);
   return `
-  <details class="panel" ${S.books.length ? "" : "open"}>
+  <details class="panel" open>
     <summary><b>책 담기</b></summary>
     <form id="add-form" style="display:grid;gap:10px;margin-top:10px">
+      <div class="cover-pick">
+        <div class="ph" id="cover-ph">표지</div><img id="cover-prev" alt="고른 표지" hidden>
+        <div>
+          <div class="row"><label class="btn" for="f-cover" tabindex="0">표지 사진으로 채우기</label></div>
+          <input type="file" id="f-cover" accept="image/jpeg,image/png,image/webp,image/gif" hidden>
+          <p id="cover-status">${canRead() ? "앞표지를 찍거나 고르면 제목과 저자를 자동으로 채웁니다." : "표지 사진은 저장됩니다. 자동 인식은 Claude 앱에서 열었을 때 동작합니다."}</p>
+        </div>
+      </div>
       <div class="split"><label class="field">제목<input id="f-title" required></label><label class="field">저자<input id="f-author"></label></div>
       <div class="split"><label class="field">전체 쪽수<input id="f-pages" type="number" min="1" inputmode="numeric"></label>
         <label class="field">상태<select id="f-status"><option value="want">읽고 싶은</option><option value="reading">읽는 중</option><option value="done">완독</option></select></label></div>
@@ -295,7 +311,7 @@ function shelf() {
 function bookCard(b) {
   const pct = b.pages ? Math.round(b.current / b.pages * 100) : 0;
   const st = { want: "읽고 싶은", reading: "읽는 중", done: "완독" }[b.status];
-  return `<article class="book" data-s="${b.status}"><div class="spine"></div><div class="body">
+  return `<article class="book ${b.cover ? "has-cover" : ""}" data-s="${b.status}"><div class="spine"></div>${b.cover ? `<img class="cover" src="${esc(b.cover)}" alt="『${esc(b.title)}』 표지">` : ""}<div class="body">
     <div class="row" style="justify-content:space-between"><h3 style="min-width:0">${esc(b.title)}</h3><span class="chip ${b.status}">${st}</span></div>
     <p class="muted">${esc(b.author)}${b.status === "done" ? ` · 이해도 ${LEVELS[Math.max(0, understanding(b) - 1)]}${b.rating ? " · " + "★".repeat(b.rating) : ""}` : ""}</p>
     ${b.status === "reading" ? `<div class="bar"><i style="width:${pct}%"></i></div>
@@ -397,15 +413,84 @@ document.addEventListener("click", e => {
 
 document.addEventListener("change", e => {
   if (e.target.id === "think-book") { focusBook = e.target.value; render(); }
+  if (e.target.id === "f-cover" && e.target.files[0]) { readCover(e.target.files[0]); e.target.value = ""; }
 });
+document.addEventListener("keydown", e => {
+  if (e.target.matches?.('label[for="f-cover"]') && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); $("#f-cover").click(); }
+});
+
+/* ---------- 표지 인식 ---------- */
+let ask = null, sampleImages = false, pendingCover = null, coverCtl = null;
+const canRead = () => !!(ask && sampleImages);
+window.claude?.use("sample").then(async s => {
+  ask = s;
+  sampleImages = !!(s && (await s.limits().catch(() => null))?.images);
+  if (tab === "shelf" && $("#cover-status") && !pendingCover) $("#cover-status").textContent = canRead()
+    ? "앞표지를 찍거나 고르면 제목과 저자를 자동으로 채웁니다."
+    : "표지 사진은 저장됩니다. 자동 인식은 Claude 앱에서 열었을 때 동작합니다.";
+}).catch(() => {});
+
+function thumb(file) {
+  return new Promise((ok, fail) => {
+    const img = new Image(), url = URL.createObjectURL(file);
+    img.onload = () => {
+      const w = 240, h = Math.round(img.naturalHeight * w / img.naturalWidth);
+      const c = document.createElement("canvas"); c.width = w; c.height = h;
+      c.getContext("2d").drawImage(img, 0, 0, w, h);
+      URL.revokeObjectURL(url); ok(c.toDataURL("image/jpeg", .72));
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); fail(); };
+    img.src = url;
+  });
+}
+
+const COVER_PROMPT = `이 사진은 책의 앞표지입니다. 표지에 보이는 글자와 당신이 알고 있는 서지 정보를 바탕으로 아래 형식의 JSON 하나만 답하세요.
+{"title": "부제를 뺀 책 제목, 표지에 적힌 언어 그대로", "author": "저자. 번역서는 원저자 이름의 한국어 표기, 여러 명이면 ' · '로 구분", "pages": 한국어판 쪽수를 확실히 알면 숫자, 아니면 null, "hook": "이 책을 펼치고 싶게 만드는 한 문장, 한국어 40자 이내", "confident": 제목을 표지에서 분명히 읽었으면 true}
+책 표지가 아니거나 제목을 읽을 수 없으면 {"title": ""} 만 답하세요.`;
+
+const COVER_ERR = {
+  not_granted: "자동 인식이 허용되지 않았습니다. 제목과 저자를 직접 입력해 주세요.",
+  sampling_disabled: "이 계정에서는 자동 인식을 쓸 수 없습니다. 직접 입력해 주세요.",
+  images_unavailable: "이 화면에서는 사진 인식을 쓸 수 없습니다. 직접 입력해 주세요.",
+  image_rejected: "사진을 읽지 못했습니다. JPG나 PNG로 다시 골라 주세요.",
+  rate_limited: "요청이 몰렸습니다. 잠시 후 사진을 다시 골라 주세요.",
+  session_expired: "로그인이 만료되었습니다. 다시 로그인한 뒤 시도해 주세요.",
+  invalid_json: "인식 결과를 해석하지 못했습니다. 사진을 다시 골라 주세요.",
+};
+
+async function readCover(file) {
+  const st = $("#cover-status"), set = (m, cls = "") => { if (st) { st.textContent = m; st.className = cls; } };
+  try {
+    pendingCover = await thumb(file);
+    const prev = $("#cover-prev"); prev.src = pendingCover; prev.hidden = false; $("#cover-ph").hidden = true;
+  } catch { set("이미지를 열 수 없습니다. 다른 사진을 골라 주세요.", "err"); return; }
+  if (!canRead()) { set("표지를 저장했습니다. 제목과 저자는 직접 입력해 주세요."); return; }
+  coverCtl?.abort(); coverCtl = new AbortController();
+  set("표지를 읽는 중입니다…");
+  try {
+    const r = await ask.json(COVER_PROMPT, { images: file, signal: coverCtl.signal });
+    if (!r || !String(r.title || "").trim()) { set("표지에서 제목을 찾지 못했습니다. 직접 입력해 주세요.", "err"); return; }
+    $("#f-title").value = String(r.title).trim();
+    if (r.author) $("#f-author").value = String(r.author).trim();
+    if (Number(r.pages) > 0) $("#f-pages").value = Math.round(Number(r.pages));
+    if (r.hook) $("#f-why").placeholder = `예: ${String(r.hook).trim()}  (나만의 이유로 바꿔 적어 보세요)`;
+    set(r.confident === false ? "인식했지만 확실하지 않습니다. 제목을 확인한 뒤 담아 주세요." : "채웠습니다. 확인한 뒤 '서재에 담기'를 누르세요.", r.confident === false ? "err" : "ok");
+    $("#f-title").focus();
+  } catch (e) {
+    if (e?.code === "cancelled") return;
+    if (["not_granted", "sampling_disabled", "images_unavailable"].includes(e?.code)) sampleImages = false;
+    set(COVER_ERR[e?.code] || "인식이 중간에 끊겼습니다. 사진을 다시 골라 주세요.", "err");
+  }
+}
 
 document.addEventListener("submit", e => {
   e.preventDefault();
   const f = e.target;
   if (f.id === "add-form") {
     S.books.push({ id: uid(), title: $("#f-title").value.trim(), author: $("#f-author").value.trim(), pages: +$("#f-pages").value || 0, current: 0,
-      status: $("#f-status").value, why: $("#f-why").value.trim(), added: Date.now(), finished: $("#f-status").value === "done" ? Date.now() : null, rating: 0,
+      status: $("#f-status").value, why: $("#f-why").value.trim(), cover: pendingCover, added: Date.now(), finished: $("#f-status").value === "done" ? Date.now() : null, rating: 0,
       refl: { summary: "", concepts: ["", "", ""], explain: "", apply: "", question: "" }, quotes: [] });
+    pendingCover = null; coverCtl?.abort();
     toast("서재에 담았습니다");
   }
   if (f.id === "refl-form") {
