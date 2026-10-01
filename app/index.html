@@ -52,8 +52,9 @@ p { margin: 0; }
 .num { font-family: var(--mono); font-variant-numeric: tabular-nums; }
 
 header.top { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5; background: var(--bg); border-bottom: 1px solid var(--line); }
-.brand { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; padding-block: 14px 6px; }
+.brand { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 12px; padding-block: 14px 6px; }
 .brand h1 { font-size: 1.5rem; letter-spacing: -.01em; }
+.brand .label { white-space: nowrap; }
 .brand h1 span { color: var(--pine); }
 nav.tabs { display: flex; gap: 4px; overflow-x: auto; }
 nav.tabs button { flex: 1 0 auto; background: none; border: 0; border-bottom: 2px solid transparent; padding: 8px 10px 10px; font: 500 .95rem var(--body); color: var(--muted); cursor: pointer; }
@@ -285,12 +286,15 @@ function shelf() {
         <div>
           <div class="row"><label class="btn" for="f-cover" tabindex="0">표지 사진으로 채우기</label></div>
           <input type="file" id="f-cover" accept="image/jpeg,image/png,image/webp,image/gif" hidden>
-          <p id="cover-status">${canRead() ? "앞표지를 찍거나 고르면 제목과 저자를 자동으로 채웁니다." : "표지 사진은 저장됩니다. 자동 인식은 Claude 앱에서 열었을 때 동작합니다."}</p>
+          <p id="cover-status">${coverHint()}</p>
         </div>
       </div>
       <div class="split"><label class="field">제목<input id="f-title" required></label><label class="field">저자<input id="f-author"></label></div>
+      <div class="row"><button type="button" class="btn" data-act="lookup">제목으로 찾기</button><span class="muted" style="font-size:.85rem">제목만 적으면 저자·출판사·쪽수·소개를 채웁니다</span></div>
+      <label class="field">출판사<input id="f-publisher"></label>
       <div class="split"><label class="field">전체 쪽수<input id="f-pages" type="number" min="1" inputmode="numeric"></label>
         <label class="field">상태<select id="f-status"><option value="want">읽고 싶은</option><option value="reading">읽는 중</option><option value="done">완독</option></select></label></div>
+      <label class="field">책 소개<textarea id="f-intro" placeholder="자동으로 채워지거나 직접 적을 수 있습니다"></textarea></label>
       <label class="field">이 책을 읽고 싶은 이유<textarea id="f-why" placeholder="미래의 내가 이 책을 펼치게 만들 한 줄"></textarea></label>
       <button class="btn primary">서재에 담기</button>
     </form>
@@ -316,6 +320,7 @@ function bookCard(b) {
     <p class="muted">${esc(b.author)}${b.status === "done" ? ` · 이해도 ${LEVELS[Math.max(0, understanding(b) - 1)]}${b.rating ? " · " + "★".repeat(b.rating) : ""}` : ""}</p>
     ${b.status === "reading" ? `<div class="bar"><i style="width:${pct}%"></i></div>
       <div class="row"><input type="number" id="pg-${b.id}" value="${b.current}" min="0" max="${b.pages || ""}" style="width:110px" aria-label="현재 쪽"><span class="muted num">/ ${b.pages || "?"}쪽 · ${pct}%</span><button class="btn" data-act="page" data-id="${b.id}">쪽 갱신</button></div>` : ""}
+    ${b.intro ? `<details><summary>책 소개${b.publisher ? " · " + esc(b.publisher) : ""}</summary><p style="font-size:.9rem;margin-top:6px">${esc(b.intro)}</p></details>` : ""}
     ${b.why && b.status !== "done" ? `<p style="font-size:.9rem">${esc(b.why)}</p>` : ""}
     <div class="row">
       ${b.status === "want" ? `<button class="btn" data-act="open" data-id="${b.id}">읽기 시작</button>` : ""}
@@ -397,6 +402,7 @@ const actions = {
   goal: () => { S.goal = Math.max(1, +$("#g-year").value || 24); S.dailyMin = Math.max(5, +$("#g-day").value || 20); toast("목표를 저장했습니다"); },
   export: () => { const txt = JSON.stringify(S); navigator.clipboard?.writeText(txt).then(() => toast("백업을 복사했습니다"), () => { const box = $("#import-box"); box.value = txt; box.select(); toast("선택된 문자열을 직접 복사하세요"); }); return true; },
   import: () => { try { const d = JSON.parse($("#import-box").value); if (!Array.isArray(d.books)) throw 0; S = d; toast("복원했습니다"); } catch { toast("백업 문자열 형식이 맞지 않습니다"); return true; } },
+  lookup: () => { lookupTitle(); return true; },
   breathe: () => { breathEnd = Date.now() + 180e3; },
   skip: () => { const pool = savorPool(); const i = pool.findIndex(p => p.id === savorId); savorId = pool[(i + 1) % pool.length].id; breathEnd = 0; },
 };
@@ -419,16 +425,18 @@ document.addEventListener("keydown", e => {
   if (e.target.matches?.('label[for="f-cover"]') && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); $("#f-cover").click(); }
 });
 
-/* ---------- 표지 인식 ---------- */
-let ask = null, sampleImages = false, pendingCover = null, coverCtl = null;
-const canRead = () => !!(ask && sampleImages);
-window.claude?.use("sample").then(async s => {
+/* ---------- 표지 인식 · 책 정보 찾기 ---------- */
+let ask = null, pendingCover = null, coverCtl = null;
+const canRead = () => !!ask;
+// 뷰어가 응답하기 전에 사진을 골라도 기다렸다가 판단한다 (최대 10초 후 null).
+const askReady = (window.claude?.use("sample") ?? Promise.resolve(null)).then(s => {
   ask = s;
-  sampleImages = !!(s && (await s.limits().catch(() => null))?.images);
-  if (tab === "shelf" && $("#cover-status") && !pendingCover) $("#cover-status").textContent = canRead()
-    ? "앞표지를 찍거나 고르면 제목과 저자를 자동으로 채웁니다."
-    : "표지 사진은 저장됩니다. 자동 인식은 Claude 앱에서 열었을 때 동작합니다.";
-}).catch(() => {});
+  if (tab === "shelf" && $("#cover-status") && !pendingCover) $("#cover-status").textContent = coverHint();
+  return s;
+}).catch(() => null);
+const coverHint = () => canRead()
+  ? "앞표지를 찍거나 고르면 제목·저자·소개를 자동으로 채웁니다. 제목만 적고 '제목으로 찾기'를 눌러도 됩니다."
+  : "표지 사진은 저장됩니다. 자동 입력은 claude.ai나 Claude 앱에서 이 서재를 열었을 때 동작합니다.";
 
 function thumb(file) {
   return new Promise((ok, fail) => {
@@ -444,43 +452,68 @@ function thumb(file) {
   });
 }
 
-const COVER_PROMPT = `이 사진은 책의 앞표지입니다. 표지에 보이는 글자와 당신이 알고 있는 서지 정보를 바탕으로 아래 형식의 JSON 하나만 답하세요.
-{"title": "부제를 뺀 책 제목, 표지에 적힌 언어 그대로", "author": "저자. 번역서는 원저자 이름의 한국어 표기, 여러 명이면 ' · '로 구분", "pages": 한국어판 쪽수를 확실히 알면 숫자, 아니면 null, "hook": "이 책을 펼치고 싶게 만드는 한 문장, 한국어 40자 이내", "confident": 제목을 표지에서 분명히 읽었으면 true}
+const BOOK_JSON = `{"title": "부제를 뺀 책 제목", "author": "저자. 번역서는 원저자 이름의 한국어 표기, 여러 명이면 ' · '로 구분", "translator": "옮긴이, 없거나 모르면 빈 문자열", "publisher": "한국어판 출판사, 모르면 빈 문자열", "pages": 한국어판 쪽수를 확실히 알면 숫자 아니면 null, "intro": "이 책이 다루는 내용 2~3문장, 한국어. 확실히 아는 책일 때만 쓰고 모르면 빈 문자열", "hook": "이 책을 펼치고 싶게 만드는 한 문장, 한국어 40자 이내", "confident": 이 책을 분명히 특정했으면 true}`;
+const COVER_PROMPT = `이 사진은 책의 앞표지입니다. 표지에 보이는 글자(제목, 저자, 띠지 문구)와 당신이 알고 있는 서지 정보를 함께 써서 아래 형식의 JSON 하나만 답하세요.
+${BOOK_JSON}
 책 표지가 아니거나 제목을 읽을 수 없으면 {"title": ""} 만 답하세요.`;
+const lookupPrompt = (title, author) => `다음 책의 서지 정보를 당신이 알고 있는 지식으로 채워 아래 형식의 JSON 하나만 답하세요. 제목이 일부만 적혀 있거나 오타가 있으면 가장 그럴듯한 실제 책으로 바로잡으세요. 지어내지 말고, 모르는 칸은 비워 두세요.
+제목: ${title}${author ? "\n저자: " + author : ""}
+${BOOK_JSON}
+어떤 책인지 특정할 수 없으면 {"title": ""} 만 답하세요.`;
 
-const COVER_ERR = {
-  not_granted: "자동 인식이 허용되지 않았습니다. 제목과 저자를 직접 입력해 주세요.",
-  sampling_disabled: "이 계정에서는 자동 인식을 쓸 수 없습니다. 직접 입력해 주세요.",
-  images_unavailable: "이 화면에서는 사진 인식을 쓸 수 없습니다. 직접 입력해 주세요.",
+const AI_ERR = {
+  not_granted: "자동 입력이 허용되지 않았습니다. 다음에 뜨는 허용 창에서 '허용'을 눌러 주세요.",
+  sampling_disabled: "이 계정에서는 자동 입력을 쓸 수 없습니다. 직접 입력해 주세요.",
+  images_unavailable: "이 화면은 사진 전송을 지원하지 않습니다. 제목만 적고 '제목으로 찾기'를 눌러 주세요.",
   image_rejected: "사진을 읽지 못했습니다. JPG나 PNG로 다시 골라 주세요.",
-  rate_limited: "요청이 몰렸습니다. 잠시 후 사진을 다시 골라 주세요.",
+  rate_limited: "요청이 몰렸습니다. 잠시 후 다시 시도해 주세요.",
   session_expired: "로그인이 만료되었습니다. 다시 로그인한 뒤 시도해 주세요.",
-  invalid_json: "인식 결과를 해석하지 못했습니다. 사진을 다시 골라 주세요.",
+  invalid_json: "결과를 해석하지 못했습니다. 한 번 더 시도해 주세요.",
+  refused: "이 요청은 처리되지 않았습니다. 제목을 직접 입력해 주세요.",
 };
+const setStatus = (m, cls = "") => { const st = $("#cover-status"); if (st) { st.textContent = m; st.className = cls; } };
+
+function fillForm(r) {
+  $("#f-title").value = String(r.title).trim();
+  const who = [r.author, r.translator && `${r.translator} 옮김`].filter(Boolean).join(" · ");
+  if (who) $("#f-author").value = who;
+  if (r.publisher) $("#f-publisher").value = String(r.publisher).trim();
+  if (Number(r.pages) > 0) $("#f-pages").value = Math.round(Number(r.pages));
+  if (r.intro) $("#f-intro").value = String(r.intro).trim();
+  if (r.hook) $("#f-why").placeholder = `예: ${String(r.hook).trim()}  (나만의 이유로 바꿔 적어 보세요)`;
+  setStatus(r.confident === false ? "채웠지만 확실하지 않습니다. 제목과 저자를 확인한 뒤 담아 주세요." : "채웠습니다. 확인한 뒤 '서재에 담기'를 누르세요.", r.confident === false ? "err" : "ok");
+}
+
+async function askBook(prompt, opts) {
+  coverCtl?.abort(); coverCtl = new AbortController();
+  try {
+    const r = await ask.json(prompt, { ...opts, signal: coverCtl.signal });
+    if (!r || !String(r.title || "").trim()) return setStatus("어떤 책인지 찾지 못했습니다. 제목을 직접 입력해 주세요.", "err"), false;
+    fillForm(r); return true;
+  } catch (e) {
+    if (e?.code !== "cancelled") setStatus(AI_ERR[e?.code] || "연결이 중간에 끊겼습니다. 다시 시도해 주세요.", "err");
+    return false;
+  }
+}
 
 async function readCover(file) {
-  const st = $("#cover-status"), set = (m, cls = "") => { if (st) { st.textContent = m; st.className = cls; } };
   try {
     pendingCover = await thumb(file);
     const prev = $("#cover-prev"); prev.src = pendingCover; prev.hidden = false; $("#cover-ph").hidden = true;
-  } catch { set("이미지를 열 수 없습니다. 다른 사진을 골라 주세요.", "err"); return; }
-  if (!canRead()) { set("표지를 저장했습니다. 제목과 저자는 직접 입력해 주세요."); return; }
-  coverCtl?.abort(); coverCtl = new AbortController();
-  set("표지를 읽는 중입니다…");
-  try {
-    const r = await ask.json(COVER_PROMPT, { images: file, signal: coverCtl.signal });
-    if (!r || !String(r.title || "").trim()) { set("표지에서 제목을 찾지 못했습니다. 직접 입력해 주세요.", "err"); return; }
-    $("#f-title").value = String(r.title).trim();
-    if (r.author) $("#f-author").value = String(r.author).trim();
-    if (Number(r.pages) > 0) $("#f-pages").value = Math.round(Number(r.pages));
-    if (r.hook) $("#f-why").placeholder = `예: ${String(r.hook).trim()}  (나만의 이유로 바꿔 적어 보세요)`;
-    set(r.confident === false ? "인식했지만 확실하지 않습니다. 제목을 확인한 뒤 담아 주세요." : "채웠습니다. 확인한 뒤 '서재에 담기'를 누르세요.", r.confident === false ? "err" : "ok");
-    $("#f-title").focus();
-  } catch (e) {
-    if (e?.code === "cancelled") return;
-    if (["not_granted", "sampling_disabled", "images_unavailable"].includes(e?.code)) sampleImages = false;
-    set(COVER_ERR[e?.code] || "인식이 중간에 끊겼습니다. 사진을 다시 골라 주세요.", "err");
-  }
+  } catch { return setStatus("이미지를 열 수 없습니다. 다른 사진을 골라 주세요.", "err"); }
+  setStatus("표지를 읽는 중입니다…");
+  await askReady;
+  if (!canRead()) return setStatus(coverHint(), "err");
+  await askBook(COVER_PROMPT, { images: file });
+}
+
+async function lookupTitle() {
+  const title = $("#f-title").value.trim();
+  if (!title) { setStatus("제목을 한 단어라도 적은 뒤 눌러 주세요.", "err"); $("#f-title").focus(); return; }
+  setStatus(`『${title}』을(를) 찾는 중입니다…`);
+  await askReady;
+  if (!canRead()) return setStatus(coverHint(), "err");
+  await askBook(lookupPrompt(title, $("#f-author").value.trim()), {});
 }
 
 document.addEventListener("submit", e => {
@@ -488,6 +521,7 @@ document.addEventListener("submit", e => {
   const f = e.target;
   if (f.id === "add-form") {
     S.books.push({ id: uid(), title: $("#f-title").value.trim(), author: $("#f-author").value.trim(), pages: +$("#f-pages").value || 0, current: 0,
+      publisher: $("#f-publisher").value.trim(), intro: $("#f-intro").value.trim(),
       status: $("#f-status").value, why: $("#f-why").value.trim(), cover: pendingCover, added: Date.now(), finished: $("#f-status").value === "done" ? Date.now() : null, rating: 0,
       refl: { summary: "", concepts: ["", "", ""], explain: "", apply: "", question: "" }, quotes: [] });
     pendingCover = null; coverCtl?.abort();
