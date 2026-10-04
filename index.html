@@ -24,6 +24,7 @@
     <nav class="topnav">
       <button data-view="exchange" class="active">거래소</button>
       <button data-view="invest">투자내역</button>
+      <button data-view="casino">카지노</button>
       <button data-view="manage" id="navManage">자산관리</button>
     </nav>
     <div class="top-assets" id="topAssets" title="총 보유자산">
@@ -244,6 +245,102 @@
       </div>
     </section>
 
+    <!-- ============ 카지노 (가상 머니) ============ -->
+    <section class="view" id="view-casino">
+      <div class="casino-wrap">
+        <div class="panel casino-head">
+          <div>
+            <p class="muted">카지노에서 쓸 수 있는 KRW</p>
+            <h3 id="cBal">0</h3>
+          </div>
+          <dl>
+            <div><dt>오늘 손익</dt><dd id="cToday">0</dd></div>
+            <div><dt>누적 손익</dt><dd id="cNet">0</dd></div>
+            <div><dt>게임 수</dt><dd id="cPlays">0</dd></div>
+          </dl>
+          <p class="casino-note">🎲 전부 가상 머니예요. 게임마다 하우스 엣지가 있어 오래 할수록 조금씩 잃도록 설계돼 있어요 — 실제 도박과 같은 구조라는 걸 체험해 보세요.</p>
+        </div>
+
+        <div class="panel casino-locked hidden" id="cLocked">
+          <div class="lock-ico">🔒</div>
+          <h4>카지노가 잠겨 있어요</h4>
+          <p class="muted" id="cLockedMsg">마스터가 허용 코드를 보내주면 열려요.</p>
+        </div>
+
+        <div id="cGames">
+          <div class="tabs casino-tabs" id="cTabs">
+            <button class="active" data-game="slot">🎰 슬롯</button>
+            <button data-game="crash">🚀 떡상 크래시</button>
+            <button data-game="coin">🪙 코인 플립</button>
+          </div>
+
+          <!-- 슬롯 -->
+          <div class="panel game" id="g-slot">
+            <div class="slot-machine">
+              <div class="slot-top">TEDDY SLOT <span>RTP 97.3%</span></div>
+              <div class="reels" id="reels">
+                <div class="reel"><div class="strip"></div></div>
+                <div class="reel"><div class="strip"></div></div>
+                <div class="reel"><div class="strip"></div></div>
+              </div>
+              <div class="slot-msg" id="slotMsg">베팅하고 SPIN!</div>
+            </div>
+            <div class="bet-row">
+              <input class="bet-in" id="slotBet" inputmode="numeric" placeholder="베팅 금액" />
+              <div class="bet-quick" data-for="slotBet"><button data-m="0.5">½</button><button data-m="2">2×</button><button data-m="max">MAX</button></div>
+            </div>
+            <button class="btn spin-btn" id="slotSpin">SPIN 🎰</button>
+            <table class="paytable">
+              <tr><td>7️⃣ 7️⃣ 7️⃣</td><td>777배 💥</td><td>🟠 🟠 🟠</td><td>150배</td></tr>
+              <tr><td>💎 💎 💎</td><td>50배</td><td>🔔 🔔 🔔</td><td>20배</td></tr>
+              <tr><td>🍋 🍋 🍋</td><td>10배</td><td>🍒 🍒 🍒</td><td>5배</td></tr>
+              <tr><td colspan="2">🍒 아무데나 2개</td><td colspan="2">1.5배</td></tr>
+            </table>
+          </div>
+
+          <!-- 크래시 -->
+          <div class="panel game hidden" id="g-crash">
+            <div class="crash-box">
+              <canvas id="crashCv"></canvas>
+              <div class="crash-mult" id="crashMult">1.00×</div>
+              <div class="crash-sub" id="crashSub">로켓이 터지기 전에 익절하세요!</div>
+            </div>
+            <div class="bet-row">
+              <input class="bet-in" id="crashBet" inputmode="numeric" placeholder="베팅 금액" />
+              <div class="bet-quick" data-for="crashBet"><button data-m="0.5">½</button><button data-m="2">2×</button><button data-m="max">MAX</button></div>
+            </div>
+            <div class="bet-row">
+              <label class="muted auto-lbl">자동 익절</label>
+              <input class="bet-in" id="crashAuto" inputmode="decimal" placeholder="예: 2.00 (비우면 수동)" />
+            </div>
+            <button class="btn spin-btn" id="crashBtn">🚀 발사</button>
+            <div class="crash-hist" id="crashHist"></div>
+            <p class="muted tiny">각 판의 폭발 지점은 발사 순간 무작위로 정해져요 (하우스 엣지 1%, 1% 확률로 즉시 폭발).</p>
+          </div>
+
+          <!-- 코인 플립 -->
+          <div class="panel game hidden" id="g-coin">
+            <div class="coin-stage"><div class="coin" id="coin"><div class="face front">₿</div><div class="face back">Ξ</div></div></div>
+            <div class="slot-msg" id="coinMsg">비트(₿) 또는 이더(Ξ)를 골라요 · 맞히면 1.95배</div>
+            <div class="bet-row">
+              <input class="bet-in" id="coinBet" inputmode="numeric" placeholder="베팅 금액" />
+              <div class="bet-quick" data-for="coinBet"><button data-m="0.5">½</button><button data-m="2">2×</button><button data-m="max">MAX</button></div>
+            </div>
+            <div class="coin-picks">
+              <button class="btn coin-pick" data-side="B">₿ 비트</button>
+              <button class="btn coin-pick eth" data-side="E">Ξ 이더</button>
+            </div>
+            <div class="streak" id="coinStreak"></div>
+          </div>
+
+          <div class="panel">
+            <div class="panel-title"><h4>최근 게임</h4></div>
+            <ul class="game-log" id="cLog"></ul>
+          </div>
+        </div>
+      </div>
+    </section>
+
     <!-- ============ 자산관리 (마음대로 컨트롤) ============ -->
     <section class="view" id="view-manage">
       <div class="manage-grid">
@@ -385,6 +482,7 @@
   <nav class="bottom-tab" id="bottomTab">
     <button data-mtab="list" class="active"><span>📋</span>코인목록</button>
     <button data-mtab="detail"><span>📈</span>차트·주문</button>
+    <button data-mtab="casino"><span>🎰</span>카지노</button>
     <button data-mtab="invest"><span>💼</span>투자내역</button>
     <button data-mtab="manage"><span>⚙️</span><em id="mtabManage">자산관리</em></button>
   </nav>
@@ -429,5 +527,6 @@
   <script src="js/markets.js"></script>
   <script src="js/chart.js"></script>
   <script src="js/app.js"></script>
+  <script src="js/casino.js"></script>
 </body>
 </html>
