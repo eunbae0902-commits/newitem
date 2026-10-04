@@ -423,3 +423,13 @@ body:not(.has-family) .family-only { display: none !important; }
 #obJoinBox { margin-top: 8px; }
 .bottom-tab button em { font-style: normal; }
 @media (max-width: 860px) { .role-badge { display: none; } }
+
+/* ---------- 앱 설치 ---------- */
+.install-btn { background: linear-gradient(135deg, #ffd34d, #ff7a2e) !important; color: #10214d !important; font-size: 14px; }
+body.standalone .install-btn { display: none; }
+.form-line > .paste-btn { flex: 0 0 auto !important; padding: 0 12px; }
+.install-steps { margin: 0; padding-left: 20px; line-height: 1.9; }
+.install-steps b { color: var(--text); }
+@media (max-width: 860px) {
+  body.standalone .topbar { padding-top: env(safe-area-inset-top); height: calc(52px + env(safe-area-inset-top)); }
+}

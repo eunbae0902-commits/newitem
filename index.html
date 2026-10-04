@@ -5,7 +5,10 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover" />
   <meta name="theme-color" content="#093687" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="TEDDY X" />
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
   <title>TEDDY X 모의거래소</title>
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="icon" href="icon.svg" type="image/svg+xml" />
@@ -250,6 +253,7 @@
           <p class="muted">투자금은 마스터가 보내준 <b>지급 코드</b>로만 충전돼요. 받은 링크를 열거나 코드를 붙여넣으세요.</p>
           <div class="form-line">
             <input id="wCode" placeholder="지급 코드 / 링크 붙여넣기" autocomplete="off" />
+            <button class="btn ghost paste-btn" data-paste="wCode">📋</button>
             <button class="btn" id="wRedeem">받기</button>
           </div>
           <ul class="grant-list" id="wGrants"></ul>
@@ -349,6 +353,7 @@
         <div class="panel">
           <div class="panel-title"><h4>⚙️ 설정 · 초기화 · 백업</h4></div>
           <div class="form-stack">
+            <button class="btn install-btn" id="btnInstall">📲 휴대폰에 앱으로 설치하기</button>
             <label class="muted">목표 자산 (KRW)</label>
             <div class="form-line">
               <input id="sGoal" inputmode="numeric" placeholder="1,000,000,000" />
@@ -400,6 +405,7 @@
       </button>
       <div class="form-line hidden" id="obJoinBox">
         <input id="obCode" placeholder="초대 코드 / 링크" autocomplete="off" />
+        <button class="btn ghost paste-btn" data-paste="obCode">📋</button>
         <button class="btn" id="obJoinGo">참여</button>
       </div>
       <button class="role-pick master" id="obMaster">
