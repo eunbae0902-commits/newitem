@@ -21,7 +21,7 @@
     <nav class="topnav">
       <button data-view="exchange" class="active">거래소</button>
       <button data-view="invest">투자내역</button>
-      <button data-view="manage">자산관리</button>
+      <button data-view="manage" id="navManage">자산관리</button>
     </nav>
     <div class="top-assets" id="topAssets" title="총 보유자산">
       <span class="ta-label">총 보유자산</span>
@@ -29,6 +29,7 @@
       <span class="ta-rate" id="taRate">-</span>
     </div>
     <div class="top-actions">
+      <span class="role-badge" id="roleBadge"></span>
       <span class="conn" id="connDot" title="실시간 연결 상태"></span>
       <button class="icon-btn" id="btnSound" title="효과음">🔊</button>
       <button class="icon-btn" id="btnTheme" title="다크모드">🌙</button>
@@ -243,7 +244,53 @@
     <!-- ============ 자산관리 (마음대로 컨트롤) ============ -->
     <section class="view" id="view-manage">
       <div class="manage-grid">
-        <div class="panel">
+        <!-- 가족 구성원 전용: 내 지갑 -->
+        <div class="panel member-only">
+          <div class="panel-title"><h4 id="wTitle">👛 내 지갑</h4><span class="muted" id="wMaster"></span></div>
+          <p class="muted">투자금은 마스터가 보내준 <b>지급 코드</b>로만 충전돼요. 받은 링크를 열거나 코드를 붙여넣으세요.</p>
+          <div class="form-line">
+            <input id="wCode" placeholder="지급 코드 / 링크 붙여넣기" autocomplete="off" />
+            <button class="btn" id="wRedeem">받기</button>
+          </div>
+          <ul class="grant-list" id="wGrants"></ul>
+          <div class="form-line" style="margin-top:12px">
+            <button class="btn ghost" id="wReport">📤 내 성적표 마스터에게 보내기</button>
+          </div>
+        </div>
+
+        <!-- 마스터 전용: 가족 관리 -->
+        <div class="panel master-only family-panel">
+          <div class="panel-title"><h4>👪 가족 관리</h4><span class="muted tiny">마스터만 투자금을 지급·회수할 수 있어요</span></div>
+          <div class="form-stack">
+            <label class="muted">새 가족 초대 (이름 · 아이콘 · 시작 투자금)</label>
+            <div class="form-line">
+              <input id="fName" placeholder="이름 (예: 부건)" maxlength="12" />
+              <select id="fEmoji" class="emoji-sel">
+                <option>👩</option><option>👦</option><option>👧</option><option>👨</option><option>👵</option><option>👴</option><option>🐻</option><option>🐯</option>
+              </select>
+            </div>
+            <div class="form-line">
+              <input id="fAmt" inputmode="numeric" placeholder="시작 투자금 (예: 1,000,000)" />
+              <button class="btn" id="fInvite">초대 링크 만들기</button>
+            </div>
+          </div>
+          <ul class="member-list" id="fMembers"></ul>
+        </div>
+
+        <!-- 공통: 가족 랭킹 -->
+        <div class="panel family-only">
+          <div class="panel-title"><h4>🏁 가족 투자 랭킹</h4><span class="muted tiny" id="boardTime"></span></div>
+          <div class="board" id="board"></div>
+          <div class="form-line master-only" style="margin-top:10px">
+            <input id="fReportIn" placeholder="가족이 보낸 성적표 코드/링크 붙여넣기" autocomplete="off" />
+            <button class="btn ghost" id="fReportAdd">반영</button>
+          </div>
+          <div class="form-line master-only" style="margin-top:6px">
+            <button class="btn ghost" id="fBoardShare">📣 랭킹을 가족에게 공유</button>
+          </div>
+        </div>
+
+        <div class="panel master-only">
           <div class="panel-title"><h4>💰 원화(KRW) 컨트롤</h4></div>
           <p class="muted">현재 보유 KRW: <strong id="mKrw">0</strong></p>
           <div class="quick-btns">
@@ -260,7 +307,7 @@
           <label class="check"><input type="checkbox" id="mSeedSync" checked /> 변경분을 투자원금에도 반영 (수익률 왜곡 방지)</label>
         </div>
 
-        <div class="panel">
+        <div class="panel master-only">
           <div class="panel-title"><h4>🪙 보유코인 직접 설정</h4></div>
           <p class="muted">이미 갖고 있는 코인을 원하는 수량·평단가로 넣을 수 있어요.</p>
           <div class="form-stack">
@@ -307,16 +354,22 @@
               <input id="sGoal" inputmode="numeric" placeholder="1,000,000,000" />
               <button class="btn ghost" id="sGoalSet">저장</button>
             </div>
-            <label class="muted">시작 시드머니로 완전 초기화</label>
-            <div class="form-line">
+            <label class="muted master-only">시작 시드머니로 완전 초기화</label>
+            <div class="form-line master-only">
               <input id="sSeedInput" inputmode="numeric" placeholder="10,000,000" />
               <button class="btn danger" id="sReset">전체 초기화</button>
             </div>
+            <label class="muted master-only">마스터 잠금 PIN (아이가 내 폰으로 자산을 못 바꾸게)</label>
+            <div class="form-line master-only">
+              <input id="sPin" inputmode="numeric" type="password" maxlength="8" placeholder="숫자 4~8자리" autocomplete="new-password" />
+              <button class="btn ghost" id="sPinSet">PIN 설정</button>
+            </div>
             <div class="form-line">
               <button class="btn ghost" id="sExport">백업 내보내기</button>
-              <label class="btn ghost file-btn">백업 불러오기<input type="file" id="sImport" accept="application/json" /></label>
+              <label class="btn ghost file-btn master-only">백업 불러오기<input type="file" id="sImport" accept="application/json" /></label>
             </div>
           </div>
+          <p class="muted tiny master-only">⚠️ 마스터 백업 파일에는 가족 지급용 <b>마스터 키</b>가 들어 있어요. 안전한 곳에만 보관하세요.</p>
           <p class="muted tiny">모든 데이터는 이 기기의 브라우저에만 저장됩니다. 서버로 전송되지 않아요.</p>
         </div>
       </div>
@@ -328,13 +381,32 @@
     <button data-mtab="list" class="active"><span>📋</span>코인목록</button>
     <button data-mtab="detail"><span>📈</span>차트·주문</button>
     <button data-mtab="invest"><span>💼</span>투자내역</button>
-    <button data-mtab="manage"><span>⚙️</span>자산관리</button>
+    <button data-mtab="manage"><span>⚙️</span><em id="mtabManage">자산관리</em></button>
   </nav>
 
   <!-- 효과 레이어 -->
   <canvas id="fx"></canvas>
   <div id="toasts"></div>
   <div id="floaters"></div>
+
+  <!-- 첫 실행: 역할 선택 -->
+  <div class="modal hidden" id="onboard">
+    <div class="modal-card onboard-card">
+      <div class="ob-hero">TX</div>
+      <h4>TEDDY X에 오신 걸 환영해요</h4>
+      <p class="muted">이 기기를 어떻게 사용할까요?</p>
+      <button class="role-pick" id="obJoin">
+        <span>👪</span><b>가족 초대 코드로 시작</b><small>마스터에게 받은 초대 링크를 열거나 코드를 붙여넣어요</small>
+      </button>
+      <div class="form-line hidden" id="obJoinBox">
+        <input id="obCode" placeholder="초대 코드 / 링크" autocomplete="off" />
+        <button class="btn" id="obJoinGo">참여</button>
+      </div>
+      <button class="role-pick master" id="obMaster">
+        <span>👑</span><b>마스터로 시작 (대표님 전용)</b><small>가족을 초대하고 투자금을 지급·회수할 수 있어요</small>
+      </button>
+    </div>
+  </div>
 
   <!-- 주문 확인 모달 -->
   <div class="modal hidden" id="modal">

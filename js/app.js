@@ -109,6 +109,9 @@
       ath: seed,
       athNotified: seed,
       createdAt: Date.now(),
+      role: null,            // 'master' | 'member'
+      family: null,
+      pinHash: null,
     };
   }
   let S;
@@ -316,7 +319,9 @@
     refreshAll();
     return true;
   }
-  function fail(msg) { toast('주문 실패', msg, 'fail'); sfx('error'); return false; }
+  function fail(msg) { toast('⚠️ 확인해 주세요', msg, 'fail'); sfx('error'); return false; }
+  /** 입금·회수처럼 외부에서 돈이 바뀐 직후엔 신고가 기준점을 현재 자산으로 맞춤 (가짜 신고가 알림 방지) */
+  function rebaseAth() { const t = portfolio().total; S.ath = t; S.athNotified = t; }
 
   function matchOrders(code, price) {
     if (!S.orders.length) return;
@@ -978,13 +983,368 @@
   }
 
   /* =========================================================
+   * 가족 모드
+   *  - 마스터 기기만 ECDSA 개인키를 보유 → 지급/회수/초기화 코드에 서명
+   *  - 가족 기기는 초대 시 받은 마스터 공개키로 서명을 검증한 코드만 반영
+   *  - 서버 없이 링크(#tx=...)로 주고받으며, 각 코드는 1회만 사용 가능
+   * ========================================================= */
+  const te = new TextEncoder(), td = new TextDecoder();
+  const b64u = (bytes) => btoa(String.fromCharCode(...new Uint8Array(bytes))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  const unb64u = (s) => Uint8Array.from(atob(s.replace(/-/g, '+').replace(/_/g, '/') + '==='.slice((s.length + 3) % 4)), (c) => c.charCodeAt(0));
+  const ALG = { name: 'ECDSA', namedCurve: 'P-256' };
+  const SIG = { name: 'ECDSA', hash: 'SHA-256' };
+  const isMaster = () => S.role === 'master';
+  const isMember = () => S.role === 'member';
+  const linkOf = (code) => `${location.origin}${location.pathname}#tx=${code}`;
+  let unlocked = false;
+  // 링크로 들어오는 문자열은 화면에 그대로 쓰이므로 태그 문자 제거 + 길이 제한
+  const clean = (v, n = 20) => String(v ?? '').replace(/[<>&"'`]/g, '').slice(0, n);
+  const num = (v) => (Number.isFinite(Number(v)) ? Math.round(Number(v)) : NaN);
+
+  async function sha256Hex(str) {
+    const h = await crypto.subtle.digest('SHA-256', te.encode(str));
+    return [...new Uint8Array(h)].map((b) => b.toString(16).padStart(2, '0')).join('');
+  }
+  async function signCode(obj) {
+    const body = te.encode(JSON.stringify(obj));
+    const key = await crypto.subtle.importKey('jwk', S.family.priv, ALG, false, ['sign']);
+    const sig = await crypto.subtle.sign(SIG, key, body);
+    return b64u(body) + '.' + b64u(sig);
+  }
+  const plainCode = (obj) => b64u(te.encode(JSON.stringify(obj))) + '.';
+  async function verifyCode(code, pub) {
+    const [b, s] = code.split('.');
+    if (!s) return false;
+    try {
+      const key = await crypto.subtle.importKey('jwk', { kty: 'EC', crv: 'P-256', x: pub.x, y: pub.y, ext: true }, ALG, false, ['verify']);
+      return await crypto.subtle.verify(SIG, key, unb64u(s), unb64u(b));
+    } catch (e) { return false; }
+  }
+  function decodeCode(input) {
+    let code = String(input || '').trim();
+    const m = code.match(/#tx=([A-Za-z0-9_\-.]+)/);
+    if (m) code = m[1];
+    if (!/^[A-Za-z0-9_\-]+\.[A-Za-z0-9_\-]*$/.test(code)) return null;
+    try { return { code, p: JSON.parse(td.decode(unb64u(code.split('.')[0]))) }; } catch (e) { return null; }
+  }
+
+  async function becomeMaster() {
+    const kp = await crypto.subtle.generateKey(ALG, true, ['sign', 'verify']);
+    const priv = await crypto.subtle.exportKey('jwk', kp.privateKey);
+    const pub = await crypto.subtle.exportKey('jwk', kp.publicKey);
+    S.role = 'master';
+    S.family = { id: uid(), mn: '대표님', pub: { x: pub.x, y: pub.y }, priv, members: [], issued: [], reports: {} };
+    unlocked = true;
+    save(); applyRole();
+  }
+
+  /** 링크/붙여넣기로 들어온 코드 처리 */
+  async function handleCode(input) {
+    const d = decodeCode(input);
+    if (!d) return fail('올바른 코드가 아니에요.');
+    const { code, p } = d;
+    if (p.t === 'inv') return acceptInvite(code, p);
+    if (p.t === 'grant') return acceptGrant(code, p);
+    if (p.t === 'rep') return acceptReport(p);
+    if (p.t === 'board') return acceptBoard(code, p);
+    fail('알 수 없는 코드예요.');
+  }
+
+  async function acceptInvite(code, p) {
+    if (!p.pk || !(await verifyCode(code, p.pk))) return fail('초대 코드가 손상됐어요.');
+    p.name = clean(p.name, 12); p.emoji = clean(p.emoji, 4); p.mn = clean(p.mn, 12); p.amt = num(p.amt);
+    if (!(p.amt >= 0)) return fail('초대 코드가 손상됐어요.');
+    if (isMaster()) return fail('마스터 기기에서는 초대 링크를 쓸 수 없어요. 가족 폰에서 열어주세요.');
+    const join = () => {
+      const keep = { theme: S.theme, sound: S.sound, favorites: S.favorites, tf: S.tf, lastMarket: S.lastMarket, welcomed: true };
+      S = Object.assign(freshState(p.amt), keep);
+      S.role = 'member';
+      S.family = {
+        id: p.fam, mn: p.mn, pub: p.pk, mid: p.mid, name: p.name, emoji: p.emoji,
+        used: [p.n], grants: [{ amt: p.amt, op: 'add', memo: '시작 투자금', ts: Date.now() }], board: null,
+      };
+      save(); applyRole(); refreshAll(); renderList();
+      $('#onboard').classList.add('hidden');
+      toast(`${p.emoji} ${p.name}님, 가족 거래소에 오신 걸 환영해요!`, `${p.mn}이 투자금 ${fmtKRW(p.amt)}원을 보내줬어요.`, 'win');
+      sfx('badge'); confetti(140); setTimeout(() => confetti(60, { rain: true, emoji: ['💵', '💰', '🪙'] }), 300);
+    };
+    if (isMember()) {
+      if (S.family.id === p.fam && S.family.mid === p.mid && S.family.used.includes(p.n)) return toast('이미 참여 중이에요', `${S.family.emoji} ${S.family.name}`, '');
+      return modal('초대 링크로 다시 시작', `<p>지금 기기의 투자 기록이 모두 지워지고<br><b>${p.emoji} ${p.name}</b> 계정으로 새로 시작해요.</p>`, join, 'danger');
+    }
+    join();
+  }
+
+  async function acceptGrant(code, p) {
+    if (!isMember()) return fail('지급 코드는 가족 기기에서만 받을 수 있어요.');
+    const F = S.family;
+    if (p.fam !== F.id || p.mid !== F.mid) return fail(`이 코드는 ${F.name}님 것이 아니에요.`);
+    if (F.used.includes(p.n)) return fail('이미 사용한 코드예요.');
+    if (!(await verifyCode(code, F.pub))) return fail('마스터가 발급한 코드가 아니에요.');
+    p.amt = num(p.amt); p.memo = clean(p.memo, 30);
+    if (!Number.isFinite(p.amt) || (p.op === 'reset' && p.amt < 0)) return fail('코드가 손상됐어요.');
+    F.used.push(p.n);
+    if (p.op === 'reset') {
+      const keep = { theme: S.theme, sound: S.sound, favorites: S.favorites, tf: S.tf, lastMarket: S.lastMarket, welcomed: true, role: 'member', family: F };
+      S = Object.assign(freshState(p.amt), keep);
+      F.grants.unshift({ amt: p.amt, op: 'reset', memo: p.memo || '새 출발', ts: Date.now() });
+      toast('🔄 계정 초기화', `${fmtKRW(p.amt)}원으로 새로 시작해요.`, 'win');
+      confetti(100);
+    } else {
+      let amt = p.amt;
+      if (amt < 0) amt = -Math.min(-amt, availKrw()); // 주문가능 금액까지만 회수
+      S.krw += amt;
+      S.seed = Math.max(0, S.seed + amt);
+      F.grants.unshift({ amt, op: 'add', memo: p.memo || '', ts: Date.now() });
+      if (amt >= 0) {
+        toast(`💸 ${F.mn}이 ${fmtKRW(amt)}원을 보냈어요!`, p.memo || '투자금 충전 완료', 'win');
+        floater(`+${fmtKRW(amt)}원<small>투자금 도착</small>`, '#e5a50a');
+        sfx('win', 2); confetti(80, { rain: true, emoji: ['💵', '💰', '🪙'] });
+      } else {
+        toast('투자금 회수', `${fmtKRW(amt)}원 (${p.memo || '마스터 회수'})`, 'ask');
+        sfx('lose');
+      }
+    }
+    if (F.grants.length > 100) F.grants.length = 100;
+    rebaseAth(); save(); refreshAll(); renderList();
+  }
+
+  function acceptReport(p) {
+    if (!isMaster()) return fail('성적표는 마스터 기기에서만 받을 수 있어요.');
+    const F = S.family;
+    const mem = F.members.find((m) => m.mid === p.mid);
+    if (p.fam !== F.id || !mem) return fail('우리 가족 성적표가 아니에요.');
+    p.total = num(p.total); p.seed = num(p.seed); p.ts = num(p.ts);
+    if (!Number.isFinite(p.total) || !Number.isFinite(p.seed) || !Number.isFinite(p.ts)) return fail('성적표가 손상됐어요.');
+    const prev = F.reports[p.mid];
+    if (prev && prev.ts >= p.ts) return toast('이미 반영된 성적표예요', mem.name, '');
+    F.reports[p.mid] = p;
+    save(); renderFamily();
+    toast(`${mem.emoji} ${mem.name}님 성적표 도착`, `총자산 ${fmtKRW(p.total)}원 · 원금 대비 ${fmtPct(p.seed ? p.total / p.seed - 1 : 0)}`, 'bid');
+    sfx('order');
+  }
+
+  async function acceptBoard(code, p) {
+    if (!isMember()) return isMaster() ? toast('마스터 기기에는 이미 랭킹이 있어요', '', '') : fail('가족 기기에서 열어주세요.');
+    if (p.fam !== S.family.id || !(await verifyCode(code, S.family.pub))) return fail('우리 가족 랭킹이 아니에요.');
+    S.family.board = p;
+    save(); renderFamily();
+    toast('🏁 가족 랭킹 업데이트', '자산관리 탭에서 확인하세요', 'bid');
+  }
+
+  /* ---------- 마스터: 코드 발급 ---------- */
+  function shareModal(title, desc, code) {
+    const url = linkOf(code);
+    modal(title, `<p class="muted">${desc}</p><textarea class="share-box" readonly>${url}</textarea>
+      <div class="form-line" style="margin-top:8px"><button class="btn ghost" id="shCopy">📋 복사</button>${navigator.share ? '<button class="btn" id="shShare">📤 카톡 등으로 보내기</button>' : ''}</div>`,
+      null, '', '닫기');
+    $('#modalCancel').classList.add('hidden');
+    const ta = $('#modalBody .share-box');
+    ta.onclick = () => ta.select();
+    $('#shCopy').onclick = async () => {
+      try { await navigator.clipboard.writeText(url); } catch (e) { ta.select(); document.execCommand('copy'); }
+      toast('링크 복사 완료', '메신저에 붙여넣어 보내세요', 'bid');
+    };
+    const sh = $('#shShare');
+    if (sh) sh.onclick = () => navigator.share({ title: 'TEDDY X', text: title, url }).catch(() => {});
+  }
+  async function issueInvite(mem) {
+    const F = S.family;
+    const code = await signCode({ t: 'inv', fam: F.id, mn: F.mn, pk: F.pub, mid: mem.mid, name: mem.name, emoji: mem.emoji, amt: mem.start, n: uid(), ts: Date.now() });
+    shareModal(`${mem.emoji} ${mem.name}님 초대 링크`, `${mem.name}님 폰에서 이 링크를 열면 시작 투자금 <b>${fmtKRW(mem.start)}원</b>으로 가족 거래소에 참여해요.`, code);
+  }
+  async function issueGrant(mem, op, amt, memo) {
+    const F = S.family;
+    const n = uid();
+    const code = await signCode({ t: 'grant', fam: F.id, mid: mem.mid, op, amt, memo, n, ts: Date.now() });
+    F.issued.unshift({ n, mid: mem.mid, op, amt, memo, ts: Date.now() });
+    if (F.issued.length > 300) F.issued.length = 300;
+    if (op === 'reset') { mem.granted = amt; mem.start = amt; } else mem.granted = (mem.granted || 0) + amt;
+    save(); renderFamily();
+    const label = op === 'reset' ? `${fmtKRW(amt)}원으로 초기화` : amt >= 0 ? `${fmtKRW(amt)}원 지급` : `${fmtKRW(-amt)}원 회수`;
+    shareModal(`${mem.emoji} ${mem.name}님 ${label} 코드`, `${mem.name}님이 이 링크를 열면 바로 반영돼요. 코드는 <b>1회만</b> 사용할 수 있어요.`, code);
+  }
+  function selfRow() {
+    const pf = portfolio();
+    const name = isMaster() ? S.family.mn : S.family.name;
+    const emoji = isMaster() ? '👑' : S.family.emoji;
+    return { mid: isMaster() ? 'master' : S.family.mid, name, emoji, total: pf.total, seed: S.seed, ts: Date.now(), me: true };
+  }
+  async function shareBoard() {
+    const F = S.family;
+    const rows = [selfRow()].concat(F.members.filter((m) => F.reports[m.mid]).map((m) => {
+      const r = F.reports[m.mid];
+      return { mid: m.mid, name: m.name, emoji: m.emoji, total: r.total, seed: r.seed, ts: r.ts };
+    })).map(({ me, ...r }) => r);
+    const code = await signCode({ t: 'board', fam: F.id, rows, ts: Date.now() });
+    shareModal('🏁 가족 랭킹 공유', '가족이 이 링크를 열면 각자 앱에서 현재 랭킹을 볼 수 있어요.', code);
+  }
+  function sendReport() {
+    const F = S.family, pf = portfolio();
+    const code = plainCode({ t: 'rep', fam: F.id, mid: F.mid, name: F.name, emoji: F.emoji, total: Math.round(pf.total), seed: Math.round(S.seed), realized: Math.round(S.realized), trades: S.trades.length, ts: Date.now() });
+    shareModal('📤 내 성적표', `${F.mn}에게 이 링크를 보내면 가족 랭킹에 반영돼요.`, code);
+  }
+
+  /* ---------- 렌더 ---------- */
+  function applyRole() {
+    const b = document.body;
+    b.classList.toggle('role-master', isMaster());
+    b.classList.toggle('role-member', isMember());
+    b.classList.toggle('has-family', isMember() || (isMaster() && S.family.members.length > 0));
+    const badge = $('#roleBadge');
+    if (isMaster()) { badge.textContent = '👑 마스터'; badge.className = 'role-badge master'; }
+    else if (isMember()) { badge.textContent = `${S.family.emoji} ${S.family.name}`; badge.className = 'role-badge'; }
+    else { badge.textContent = ''; }
+    const lbl = isMember() ? '내 지갑' : '자산관리';
+    $('#navManage').textContent = lbl;
+    $('#mtabManage').textContent = lbl;
+  }
+  function renderBoard() {
+    let rows;
+    if (isMaster()) {
+      const F = S.family;
+      rows = [selfRow()].concat(F.members.map((m) => {
+        const r = F.reports[m.mid];
+        return r ? { mid: m.mid, name: m.name, emoji: m.emoji, total: r.total, seed: r.seed, ts: r.ts } : { mid: m.mid, name: m.name, emoji: m.emoji, none: true };
+      }));
+      $('#boardTime').textContent = '성적표를 받으면 갱신돼요';
+    } else {
+      const bd = S.family.board;
+      rows = (bd ? bd.rows.filter((r) => r.mid !== S.family.mid) : []).concat([selfRow()]);
+      $('#boardTime').textContent = bd ? `${timeStr(bd.ts)} 기준 (내 기록은 실시간)` : '마스터가 랭킹을 공유하면 보여요';
+    }
+    const rate = (r) => (r.none || !r.seed ? -Infinity : r.total / r.seed - 1);
+    rows.sort((a, b) => rate(b) - rate(a));
+    const medal = ['🥇', '🥈', '🥉'];
+    $('#board').innerHTML = rows.map((r, i) => {
+      const rt = rate(r);
+      return `<div class="board-row${r.me ? ' me' : ''}">
+        <div class="rk">${r.none ? '-' : medal[i] || i + 1}</div><div class="av">${r.emoji}</div>
+        <div class="nm"><b>${r.name}${r.me ? ' (나)' : ''}</b><small>${r.none ? '아직 성적표 없음' : `총자산 ${fmtHuman(r.total)}원 · 원금 ${fmtHuman(r.seed)}원`}</small></div>
+        <div class="rt ${r.none ? '' : cls(rt)}">${r.none ? '-' : fmtPct(rt)}<small>${r.none || r.me ? '' : timeStr(r.ts)}</small></div>
+      </div>`;
+    }).join('');
+  }
+  function renderFamily() {
+    applyRole();
+    if (isMaster()) {
+      const F = S.family;
+      $('#fMembers').innerHTML = F.members.length ? F.members.map((m) => {
+        const r = F.reports[m.mid];
+        return `<li data-mid="${m.mid}"><div class="av">${m.emoji}</div>
+          <div class="mi"><b>${m.name}</b><small>누적 지급 ${fmtKRW(m.granted || 0)}원${r ? ` · 최근 총자산 ${fmtKRW(r.total)}원 (${fmtPct(r.seed ? r.total / r.seed - 1 : 0)})` : ''}</small></div>
+          <div class="ma"><input inputmode="numeric" placeholder="금액" class="fm-amt" />
+            <button class="plus" data-act="add">＋지급</button><button class="minus" data-act="sub">－회수</button>
+            <button data-act="reset">초기화</button><button data-act="invite">초대링크</button><button data-act="del">삭제</button></div></li>`;
+      }).join('') : '<li class="muted" style="display:block">아직 초대한 가족이 없어요. 이름과 시작 투자금을 넣고 초대 링크를 만들어 보세요.</li>';
+    }
+    if (isMember()) {
+      const F = S.family;
+      $('#wTitle').textContent = `${F.emoji} ${F.name}의 지갑`;
+      $('#wMaster').textContent = `마스터: 👑 ${F.mn}`;
+      $('#wGrants').innerHTML = F.grants.slice(0, 15).map((g) => `<li><span>${g.op === 'reset' ? '🔄 초기화' : g.amt >= 0 ? '💸 받음' : '↩️ 회수'} <small>${g.memo || ''}</small></span><span><b class="${g.amt >= 0 ? 'rise' : 'fall'}">${g.op === 'reset' ? fmtKRW(g.amt) : fmtSigned(g.amt)}원</b> <small>${timeStr(g.ts)}</small></span></li>`).join('');
+    }
+    if (document.body.classList.contains('has-family')) renderBoard();
+  }
+
+  /* ---------- PIN 잠금 (마스터 기기) ---------- */
+  function requestPin(then) {
+    modal('🔒 마스터 PIN 입력', '<input id="pinIn" type="password" inputmode="numeric" maxlength="8" placeholder="PIN" autocomplete="off" style="text-align:center;font-size:20px;letter-spacing:6px" />', async () => {
+      const v = $('#pinIn') ? $('#pinIn').value : '';
+      if ((await sha256Hex('tx-pin:' + v)) === S.pinHash) { unlocked = true; then && then(); }
+      else { fail('PIN이 맞지 않아요.'); }
+    }, '', '잠금 해제');
+    setTimeout(() => $('#pinIn') && $('#pinIn').focus(), 50);
+  }
+  /** 자산을 바꾸는 동작 전에 호출: 마스터 + (PIN 설정 시) 잠금 해제 상태여야 함 */
+  function masterOk() {
+    if (!isMaster()) { fail('자산 조정은 마스터만 할 수 있어요.'); return false; }
+    if (S.pinHash && !unlocked) { requestPin(); return false; }
+    return true;
+  }
+
+  function bindFamily() {
+    $('#obJoin').onclick = () => { $('#obJoinBox').classList.remove('hidden'); $('#obCode').focus(); };
+    $('#obJoinGo').onclick = () => handleCode($('#obCode').value);
+    $('#obMaster').onclick = async () => {
+      await becomeMaster();
+      $('#onboard').classList.add('hidden');
+      refreshAll();
+      toast('👑 마스터 모드 시작', '자산관리 탭에서 가족을 초대해 보세요.', 'win');
+      confetti(80);
+    };
+    $('#wRedeem').onclick = () => { handleCode($('#wCode').value); $('#wCode').value = ''; };
+    $('#wReport').onclick = sendReport;
+    $('#fInvite').onclick = () => {
+      if (!masterOk()) return;
+      const name = clean($('#fName').value.trim(), 12), amt = Math.round(parseNum($('#fAmt').value));
+      if (!name) return fail('이름을 입력하세요.');
+      if (amt < MIN_ORDER) return fail(`시작 투자금은 ${fmtKRW(MIN_ORDER)}원 이상이어야 해요.`);
+      const mem = { mid: uid(), name, emoji: $('#fEmoji').value, start: amt, granted: amt, created: Date.now() };
+      S.family.members.push(mem);
+      $('#fName').value = ''; $('#fAmt').value = '';
+      save(); renderFamily();
+      issueInvite(mem);
+    };
+    $('#fMembers').onclick = (e) => {
+      const b = e.target.closest('button[data-act]'); if (!b) return;
+      if (!masterOk()) return;
+      const li = b.closest('li'), F = S.family;
+      const mem = F.members.find((m) => m.mid === li.dataset.mid); if (!mem) return;
+      const amt = Math.round(parseNum(li.querySelector('.fm-amt').value));
+      const act = b.dataset.act;
+      if (act === 'invite') return issueInvite(mem);
+      if (act === 'del') {
+        return modal('가족 삭제', `<p>${mem.emoji} ${mem.name}님을 목록에서 지울까요?<br><small class="muted">상대 폰의 데이터는 그대로 남아요.</small></p>`, () => {
+          F.members = F.members.filter((m) => m !== mem); delete F.reports[mem.mid]; save(); renderFamily();
+        }, 'danger');
+      }
+      if (amt <= 0) return fail('금액을 입력하세요.');
+      if (act === 'add') return issueGrant(mem, 'add', amt, '마스터 지급');
+      if (act === 'sub') return issueGrant(mem, 'add', -amt, '마스터 회수');
+      if (act === 'reset') {
+        return modal('계정 초기화 코드', `<p>${mem.emoji} ${mem.name}님의 코인·거래내역을 모두 지우고<br><b>${fmtKRW(amt)}원</b>으로 새로 시작하게 할까요?</p>`, () => issueGrant(mem, 'reset', amt, '새 출발'), 'danger');
+      }
+    };
+    $('#fReportAdd').onclick = () => { handleCode($('#fReportIn').value); $('#fReportIn').value = ''; };
+    $('#fBoardShare').onclick = shareBoard;
+    $('#sPinSet').onclick = async () => {
+      if (!masterOk()) return;
+      const v = $('#sPin').value.trim();
+      if (!v) { S.pinHash = null; save(); toast('PIN 해제', '마스터 잠금을 껐어요.', ''); return; }
+      if (!/^\d{4,8}$/.test(v)) return fail('PIN은 숫자 4~8자리로 입력하세요.');
+      S.pinHash = await sha256Hex('tx-pin:' + v);
+      $('#sPin').value = ''; save();
+      toast('🔒 PIN 설정 완료', '앱을 다시 열면 자산관리 진입 시 PIN을 물어봐요.', 'bid');
+    };
+    const onHash = () => {
+      if (!location.hash.startsWith('#tx=')) return;
+      const code = location.hash;
+      history.replaceState(null, '', location.pathname + location.search);
+      handleCode(code);
+    };
+    addEventListener('hashchange', onHash);
+    return onHash;
+  }
+
+  /** 시작 시 역할 결정: 링크로 들어왔으면 처리, 역할이 없으면 선택 화면 */
+  function startFamily(onHash) {
+    applyRole();
+    const hasCode = location.hash.startsWith('#tx=');
+    if (!S.role && !(hasCode && decodeCode(location.hash)?.p?.t === 'inv')) $('#onboard').classList.remove('hidden');
+    if (hasCode) onHash();
+  }
+
+  /* =========================================================
    * 모달
    * ========================================================= */
   let modalOk = null;
-  function modal(title, html, onOk, okClass = '') {
+  function modal(title, html, onOk, okClass = '', okText = '확인') {
     $('#modalTitle').textContent = title;
     $('#modalBody').innerHTML = html;
     $('#modalOk').className = 'btn ' + okClass;
+    $('#modalOk').textContent = okText;
+    $('#modalCancel').classList.remove('hidden');
     modalOk = onOk;
     $('#modal').classList.remove('hidden');
   }
@@ -996,6 +1356,7 @@
   let view = 'exchange';
   const isMobile = () => matchMedia('(max-width: 860px)').matches;
   function go(v, mtab) {
+    if (v === 'manage' && isMaster() && S.pinHash && !unlocked) return requestPin(() => go(v, mtab));
     view = v;
     $$('.view').forEach((el) => el.classList.toggle('active', el.id === 'view-' + v));
     $$('.topnav button').forEach((b) => b.classList.toggle('active', b.dataset.view === v));
@@ -1007,7 +1368,7 @@
     }
     $$('#bottomTab button').forEach((b) => b.classList.toggle('active', b.dataset.mtab === tab));
     if (v === 'invest') renderInvest();
-    if (v === 'manage') renderManage();
+    if (v === 'manage') { renderManage(); renderFamily(); }
     window.scrollTo(0, 0);
   }
 
@@ -1039,7 +1400,7 @@
     renderOpenOrders();
     updateChartLines();
     if (view === 'invest') renderInvest();
-    if (view === 'manage') renderManage();
+    if (view === 'manage') { renderManage(); renderFamily(); }
   }
 
   /* =========================================================
@@ -1136,11 +1497,12 @@
 
     // 자산관리: KRW
     const setKrw = (nv) => {
+      if (!masterOk()) return;
       nv = Math.max(lockedKrw(), Math.round(nv));
       const delta = nv - S.krw;
       S.krw = nv;
-      if ($('#mSeedSync').checked) S.seed = Math.max(0, S.seed + delta);
-      save(); refreshAll();
+      if ($('#mSeedSync').checked) S.seed = Math.max(0, Math.round(S.seed + delta));
+      rebaseAth(); save(); refreshAll();
       toast('💰 KRW 잔고 변경', `${fmtSigned(delta)}원 → 보유 ${fmtKRW(S.krw)}원`, delta >= 0 ? 'bid' : 'ask');
       if (delta > 0) { sfx('buy'); confetti(30, { rain: true, emoji: ['💵', '💰'] }); }
     };
@@ -1154,6 +1516,7 @@
     $('#mCoin').onchange = loadHoldingEditor;
     $('#mAvgNow').onclick = () => { const c = $('#mCoin').value; if (T[c]) $('#mAvg').value = fmtPrice(T[c].price); };
     $('#mCoinSet').onclick = () => {
+      if (!masterOk()) return;
       const c = $('#mCoin').value, q = parseNum($('#mQty').value), a = parseNum($('#mAvg').value) || lastPrice(c);
       const old = S.holdings[c];
       const oldCost = old ? old.qty * old.avg : 0;
@@ -1164,6 +1527,7 @@
       toast('🪙 보유코인 설정 완료', `${M[c].kor} ${fmtQty(q)} ${M[c].sym} · 평단 ${fmtPrice(a)}원`, 'bid');
     };
     $('#mCoinDel').onclick = () => {
+      if (!masterOk()) return;
       const c = $('#mCoin').value, old = S.holdings[c];
       if (!old) return;
       if (lockedQty(c) > 0) return fail('미체결 매도 주문을 먼저 취소하세요.');
@@ -1199,9 +1563,10 @@
       toast('🎯 목표 자산 설정', fmtHuman(g) + '원', 'bid');
     };
     $('#sReset').onclick = () => {
+      if (!masterOk()) return;
       const seed = parseNum($('#sSeedInput').value) || DEFAULT_SEED;
       modal('전체 초기화', `<p>보유코인·거래내역·미체결·배지가 모두 삭제되고<br><b>${fmtKRW(seed)} KRW</b>로 새로 시작합니다.</p>`, () => {
-        const keep = { theme: S.theme, sound: S.sound, goal: S.goal, favorites: S.favorites, tf: S.tf, lastMarket: S.lastMarket };
+        const keep = { theme: S.theme, sound: S.sound, goal: S.goal, favorites: S.favorites, tf: S.tf, lastMarket: S.lastMarket, role: S.role, family: S.family, pinHash: S.pinHash, welcomed: true };
         S = Object.assign(freshState(seed), keep);
         save(); refreshAll(); renderList(); loadHoldingEditor();
         toast('새 출발!', `${fmtKRW(seed)} KRW 지급 완료`, 'win');
@@ -1218,11 +1583,12 @@
     };
     $('#sImport').onchange = async (e) => {
       const f = e.target.files[0]; if (!f) return;
+      if (!masterOk()) { e.target.value = ''; return; }
       try {
         const obj = JSON.parse(await f.text());
         if (typeof obj.krw !== 'number' || typeof obj.holdings !== 'object') throw new Error('형식 오류');
         S = Object.assign(freshState(), obj);
-        save(); applyPrefs(); refreshAll(); renderList(); loadHoldingEditor();
+        save(); applyPrefs(); applyRole(); refreshAll(); renderList(); loadHoldingEditor();
         toast('백업 복원 완료', `총 ${S.trades.length}건의 거래내역`, 'win');
       } catch (err) { fail('백업 파일을 읽을 수 없어요.'); }
       e.target.value = '';
@@ -1253,6 +1619,7 @@
   async function init() {
     applyPrefs();
     bind();
+    startFamily(bindFamily());
     setSide('bid');
     await boot();
   }
@@ -1282,7 +1649,7 @@
     setInterval(dcaLoop, 5000);
     dcaLoop();
 
-    if (!S.trades.length && !Object.keys(S.holdings).length && !S.welcomed) {
+    if (isMaster() && !S.trades.length && !Object.keys(S.holdings).length && !S.welcomed) {
       S.welcomed = true; save();
       setTimeout(() => {
         toast('대표님, TEDDY X에 오신 걸 환영합니다! 🎉', `가상 시드 ${fmtKRW(S.krw)}원이 지급됐어요. 자산관리 탭에서 마음대로 조정할 수 있어요.`, 'win');
