@@ -49,7 +49,13 @@
     /** 실시간 체결가로 마지막 캔들 갱신 / 새 캔들 추가 */
     tick(price, vol, ts, intervalMs) {
       const d = this.data;
-      if (!d.length) return;
+      if (!d.length) {
+        // 차트 기록이 아직 없으면 실시간 체결로 첫 캔들부터 그려 나감
+        d.push({ t: Math.floor(ts / intervalMs) * intervalMs, o: price, h: price, l: price, c: price, v: vol || 0 });
+        this._computeMA(true);
+        this.dirty = true;
+        return;
+      }
       const last = d[d.length - 1];
       if (ts >= last.t + intervalMs) {
         const t = last.t + Math.floor((ts - last.t) / intervalMs) * intervalMs;

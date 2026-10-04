@@ -1,6 +1,6 @@
 /* TEDDY X 서비스 워커: 앱 화면 파일만 캐시 (시세 API는 항상 실시간으로 요청) */
-const CACHE = 'teddyx-v1';
-const SHELL = ['./', 'index.html', 'css/style.css', 'js/chart.js', 'js/app.js', 'manifest.webmanifest',
+const CACHE = 'teddyx-v2';
+const SHELL = ['./', 'index.html', 'css/style.css', 'js/markets.js', 'js/chart.js', 'js/app.js', 'manifest.webmanifest',
   'icon.svg', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/maskable-512.png', 'icons/apple-touch-icon.png'];
 
 self.addEventListener('install', (e) => {

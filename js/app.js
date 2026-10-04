@@ -69,19 +69,39 @@
     return withDate ? `${d.getFullYear() % 100}.${p(d.getMonth() + 1)}.${p(d.getDate())} ${t}` : t;
   };
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-  // 요청 제한(429)·일시 오류 시 점진적으로 재시도
-  async function getJSON(path, tries = 4) {
-    for (let i = 0; ; i++) {
-      try {
-        const r = await fetch(API + path, { cache: 'no-store' });
-        if (r.ok) return r.json();
-        if (r.status !== 429 && r.status < 500) throw Object.assign(new Error(r.status + ' ' + path), { fatal: true });
-      } catch (e) {
-        if (e.fatal || i >= tries - 1) throw e;
+  /*
+   * 업비트는 브라우저(Origin 헤더 포함) 요청을 REST·WebSocket 연결 모두 10초당 1회로 제한한다.
+   * 그래서 시세·호가·체결은 WebSocket 1개로 받고, REST(차트 기록 등)는 이 대기열로 10초 간격을 지켜 보낸다.
+   * 제한에 걸린 응답(429)은 CORS 헤더가 없어 네트워크 오류로 보이므로 오류도 재시도 대상으로 본다.
+   */
+  const REST_GAP = 10500;
+  const STALE = new Error('stale');
+  // 새로고침해도 직전 요청 시각을 기억해 제한에 걸리지 않게 함
+  const LIMIT_KEY = 'teddyx.limits';
+  const limits = (() => { try { return JSON.parse(localStorage.getItem(LIMIT_KEY) || '{}'); } catch (e) { return {}; } })();
+  const markLimit = (k) => { limits[k] = Date.now(); try { localStorage.setItem(LIMIT_KEY, JSON.stringify(limits)); } catch (e) { /* ignore */ } };
+  let restLast = Math.min(Date.now(), limits.rest || 0), restChain = Promise.resolve();
+  function getJSON(path, isStale, tries = 3) {
+    const run = async () => {
+      for (let i = 0; i < tries; i++) {
+        if (isStale && isStale()) throw STALE;
+        const wait = restLast + REST_GAP - Date.now();
+        if (wait > 0) await sleep(wait);
+        if (isStale && isStale()) throw STALE;
+        restLast = Date.now(); markLimit('rest');
+        try {
+          const r = await fetch(API + path, { cache: 'no-store' });
+          if (r.ok) return r.json();
+          if (r.status !== 429 && r.status < 500) throw Object.assign(new Error(r.status + ' ' + path), { fatal: true });
+        } catch (e) {
+          if (e.fatal) throw e;
+        }
       }
-      if (i >= tries - 1) throw new Error('retry exhausted ' + path);
-      await sleep(400 * (i + 1) + Math.random() * 300);
-    }
+      throw new Error('retry exhausted ' + path);
+    };
+    const p = restChain.then(run, run);
+    restChain = p.catch(() => {});
+    return p;
   }
 
   /* =========================================================
@@ -152,75 +172,76 @@
       ts: o.trade_timestamp || o.timestamp,
     };
     if (old && old.price !== o.trade_price) onPrice(code, o.trade_price, old.price);
+    if (!old && code === cur) {
+      renderHead();
+      if (otype === 'limit' && !$('#ofPrice').value) $('#ofPrice').value = fmtPrice(o.trade_price);
+    }
   }
 
   /* =========================================================
    * 실시간 연결 (WebSocket, 실패 시 REST 폴링)
    * ========================================================= */
-  let wsAll = null, wsCur = null, pollT = null, pollBookT = null, reconnectT = null;
+  let ws = null, pollT = null, reconnectT = null, wsFails = 0, subT = null;
+  const wsOpen = () => ws && ws.readyState === 1;
   function setConn(mode) {
     const el = $('#connDot');
     el.className = 'conn ' + (mode === 'ws' ? 'on' : mode === 'poll' ? 'poll' : '');
-    el.title = mode === 'ws' ? '실시간 연결됨' : mode === 'poll' ? '폴링 모드(지연 있음)' : '연결 끊김';
+    el.title = mode === 'ws' ? '실시간 연결됨' : mode === 'poll' ? '재연결 중(지연 있음)' : '연결 끊김';
   }
-  function openWS(payload, onMsg, onFail) {
-    let ws;
-    try { ws = new WebSocket(WS_URL); } catch (e) { onFail(); return null; }
-    ws.binaryType = 'arraybuffer';
-    const dec = new TextDecoder();
-    ws.onopen = () => ws.send(JSON.stringify(payload));
-    ws.onmessage = (ev) => {
-      try {
-        const txt = typeof ev.data === 'string' ? ev.data : dec.decode(ev.data);
-        onMsg(JSON.parse(txt));
-      } catch (e) { /* ignore */ }
-    };
-    ws.onclose = () => { if (ws._manual) return; onFail(); };
-    return ws;
+  function subPayload() {
+    return JSON.stringify([{ ticket: 'tx-' + uid() }, { type: 'ticker', codes }, { type: 'orderbook', codes: [cur] }, { type: 'trade', codes: [cur] }, { format: 'DEFAULT' }]);
   }
-  function connectAll() {
-    if (wsAll) { wsAll._manual = true; wsAll.close(); }
-    wsAll = openWS(
-      [{ ticket: 'tx-all-' + uid() }, { type: 'ticker', codes }, { format: 'DEFAULT' }],
-      (m) => { if (m.type === 'ticker') { applyTicker(m); setConn('ws'); stopPoll(); } },
-      () => { setConn('poll'); startPoll(); scheduleReconnect(); }
-    );
+  /** 선택 코인이 바뀌면 같은 연결에 구독을 다시 보냄 (새 연결을 만들지 않음) */
+  function resubscribe() {
+    clearTimeout(subT);
+    subT = setTimeout(() => { if (wsOpen()) ws.send(subPayload()); }, 250);
   }
-  function connectCur() {
-    if (wsCur) { wsCur._manual = true; wsCur.close(); }
-    wsCur = openWS(
-      [{ ticket: 'tx-cur-' + uid() }, { type: 'orderbook', codes: [cur] }, { type: 'trade', codes: [cur] }, { format: 'DEFAULT' }],
-      (m) => {
-        if (m.code !== cur) return;
-        if (m.type === 'orderbook') { book = m; queueBook(); }
-        else if (m.type === 'trade') onTrade(m);
-      },
-      () => { startBookPoll(); }
-    );
-  }
-  function scheduleReconnect() {
+  function connectWS() {
     clearTimeout(reconnectT);
-    reconnectT = setTimeout(() => { connectAll(); connectCur(); }, 10000);
+    const since = Date.now() - Math.min(Date.now(), limits.ws || 0);
+    if (since < 10500) { setConn('poll'); reconnectT = setTimeout(connectWS, 10500 - since); return; }
+    markLimit('ws');
+    if (ws) { ws._manual = true; try { ws.close(); } catch (e) { /* ignore */ } }
+    let sock;
+    try { sock = new WebSocket(WS_URL); } catch (e) { onWsFail(); return; }
+    ws = sock;
+    sock.binaryType = 'arraybuffer';
+    const dec = new TextDecoder();
+    sock.onopen = () => { wsFails = 0; sock.send(subPayload()); };
+    sock.onmessage = (ev) => {
+      let m;
+      try { m = JSON.parse(typeof ev.data === 'string' ? ev.data : dec.decode(ev.data)); } catch (e) { return; }
+      if (m.type === 'ticker') { applyTicker(m); setConn('ws'); stopPoll(); }
+      else if (m.code !== cur) return;
+      else if (m.type === 'orderbook') { book = m; queueBook(); }
+      else if (m.type === 'trade') onTrade(m);
+    };
+    sock.onclose = () => { if (!sock._manual && ws === sock) onWsFail(); };
   }
+  function onWsFail() {
+    setConn('poll');
+    startPoll();
+    wsFails++;
+    // 연결도 10초당 1회 제한 → 12초부터 점점 늘려 재시도
+    reconnectT = setTimeout(connectWS, Math.min(60000, 12000 * wsFails) + Math.random() * 2000);
+  }
+  // 실시간 연결이 끊긴 동안에만 REST로 시세를 가끔 갱신
   function startPoll() {
     if (pollT) return;
     const run = async () => {
-      try { (await getJSON('/ticker/all?quote_currencies=KRW')).forEach(applyTicker); } catch (e) { setConn('off'); }
+      if (wsOpen()) return stopPoll();
+      try { (await getJSON('/ticker/all?quote_currencies=KRW', wsOpen)).forEach(applyTicker); } catch (e) { if (e !== STALE) setConn('off'); }
     };
+    pollT = setInterval(run, 20000);
     run();
-    pollT = setInterval(run, 3000);
   }
   function stopPoll() { if (pollT) { clearInterval(pollT); pollT = null; } }
-  function startBookPoll() {
-    if (pollBookT) return;
-    pollBookT = setInterval(async () => {
-      if (wsCur && wsCur.readyState === 1) { clearInterval(pollBookT); pollBookT = null; return; }
-      try {
-        const [b] = await getJSON('/orderbook?markets=' + cur);
-        if (b && b.market === cur) { book = b; queueBook(); }
-      } catch (e) { /* ignore */ }
-    }, 2000);
-  }
+  // 앱을 다시 켰을 때(백그라운드 복귀) 연결이 끊겨 있으면 바로 재연결
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && codes.length && !wsOpen() && (!ws || ws.readyState !== 0)) {
+      clearTimeout(reconnectT); reconnectT = setTimeout(connectWS, 800);
+    }
+  });
 
   /* =========================================================
    * 가격 변경 → 주문 체결 / 차트 / 효과
@@ -229,7 +250,7 @@
     matchOrders(code, price);
     if (code === cur) {
       renderHead(true);
-      if (!wsCur || wsCur.readyState !== 1) chartTick(price, 0, Date.now());
+      if (!wsOpen()) chartTick(price, 0, Date.now());
     }
   }
   function onTrade(m) {
@@ -478,24 +499,42 @@
     },
   });
   const tfMs = (tf) => (tf === 'D' ? 86400000 : Number(tf) * 60000);
-  let chartReq = 0;
+  let chartReq = 0, chartKey = '';
+  const candleCache = {}; // { 'KRW-BTC|15': { data, at } } — 같은 차트를 다시 볼 때 요청 없이 즉시 표시
   async function loadChart() {
     const my = ++chartReq;
-    $('#chartLoading').classList.remove('hidden');
+    const key = cur + '|' + S.tf;
+    if (chartKey && chart.data.length) candleCache[chartKey] = { data: chart.data, at: candleCache[chartKey]?.at || Date.now() };
+    chartKey = key;
+    const cached = candleCache[key];
+    const loading = $('#chartLoading');
+    if (cached) {
+      chart.setData(cached.data, S.tf);
+      updateChartLines();
+      loading.classList.add('hidden');
+      if (Date.now() - cached.at < 5 * 60000) return;
+    } else {
+      chart.setData([], S.tf); // 기록이 오기 전까지 실시간 체결로 캔들을 그려 나감
+      loading.textContent = '차트 불러오는 중… (요청 제한으로 최대 10초)';
+      loading.classList.remove('hidden');
+    }
     try {
       const path = S.tf === 'D' ? `/candles/days?market=${cur}&count=200` : `/candles/minutes/${S.tf}?market=${cur}&count=200`;
-      const raw = await getJSON(path);
+      const raw = await getJSON(path, () => my !== chartReq);
       if (my !== chartReq) return;
       const data = raw.reverse().map((c) => ({
         t: Date.parse(c.candle_date_time_utc + 'Z'),
         o: c.opening_price, h: c.high_price, l: c.low_price, c: c.trade_price, v: c.candle_acc_trade_volume,
       }));
+      candleCache[key] = { data, at: Date.now() };
       chart.setData(data, S.tf);
       updateChartLines();
-      $('#chartLoading').classList.add('hidden');
+      loading.classList.add('hidden');
     } catch (e) {
-      if (my === chartReq) $('#chartLoading').textContent = '차트를 불러오지 못했어요. 잠시 후 다시 시도합니다.';
-      setTimeout(() => { if (my === chartReq) loadChart(); }, 5000);
+      if (e === STALE || my !== chartReq) return;
+      if (!chart.data.length) loading.textContent = '차트 기록을 잠시 후 다시 불러올게요.';
+      else loading.classList.add('hidden');
+      setTimeout(() => { if (my === chartReq) loadChart(); }, 15000);
     }
   }
   function chartTick(p, v, ts) { chart.tick(p, v, ts || Date.now(), tfMs(S.tf)); }
@@ -1406,12 +1445,7 @@
     $('#obBook').dataset.code = '';
     renderHead(); renderBook(); renderTrades(); renderAvail();
     if (changed || !chart.data.length) loadChart();
-    connectCur();
-    getJSON(`/trades/ticks?market=${code}&count=40`).then((arr) => {
-      if (cur !== code) return;
-      ticks = arr.map((t) => ({ p: t.trade_price, v: t.trade_volume, s: t.ask_bid, t: t.timestamp })).concat(ticks).slice(0, 60);
-      queueTrades();
-    }).catch(() => {});
+    resubscribe();
     if (otype === 'limit') $('#ofPrice').value = T[code] ? fmtPrice(T[code].price) : '';
     $('#ofQty').value = ''; $('#ofTotal').value = '';
     $('#mCoin').value = code; loadHoldingEditor();
@@ -1649,24 +1683,32 @@
     setSide('bid');
     await boot();
   }
-  async function boot() {
+  const MARKET_KEY = 'teddyx.markets.v1';
+  function setMarkets(list) {
+    list.forEach(([code, kor, eng]) => { if (code.startsWith('KRW-')) M[code] = { kor, eng, sym: code.slice(4) }; });
+    codes = Object.keys(M);
+  }
+  /** 신규 상장 반영: 하루 한 번만 마켓 목록을 REST로 갱신 */
+  async function refreshMarkets() {
     try {
       const all = await getJSON('/market/all?isDetails=false');
-      all.filter((m) => m.market.startsWith('KRW-')).forEach((m) => {
-        M[m.market] = { kor: m.korean_name, eng: m.english_name, sym: m.market.slice(4) };
-      });
-      codes = Object.keys(M);
-      (await getJSON('/ticker/all?quote_currencies=KRW')).forEach(applyTicker);
-    } catch (e) {
-      $('#clBody').innerHTML = '<div class="empty">시세 서버에 연결할 수 없어요.<br>네트워크 확인 후 새로고침 해주세요.</div>';
-      setConn('off');
-      setTimeout(boot, 8000);
-      return;
-    }
+      const list = all.filter((m) => m.market.startsWith('KRW-')).map((m) => [m.market, m.korean_name, m.english_name]);
+      if (!list.length) return;
+      const before = codes.length;
+      setMarkets(list);
+      try { localStorage.setItem(MARKET_KEY, JSON.stringify({ at: Date.now(), list })); } catch (e) { /* ignore */ }
+      if (codes.length !== before) { fillCoinSelects(); resubscribe(); }
+    } catch (e) { /* 다음 실행 때 다시 시도 */ }
+  }
+  async function boot() {
+    // 시작 시 REST 요청 없이: 내장(또는 저장된) 마켓 목록 → WebSocket 스냅샷으로 전체 시세 수신
+    let saved = null;
+    try { saved = JSON.parse(localStorage.getItem(MARKET_KEY) || 'null'); } catch (e) { /* ignore */ }
+    setMarkets(saved?.list?.length ? saved.list : (window.TX_MARKETS || []));
+    if (!saved || Date.now() - saved.at > 86400000) setTimeout(refreshMarkets, 30000);
     fillCoinSelects();
+    connectWS();
     selectMarket(cur);
-    $('#ofPrice').value = T[cur] ? fmtPrice(T[cur].price) : '';
-    connectAll();
     refreshAll();
     renderList();
 
