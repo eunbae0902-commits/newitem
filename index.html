@@ -1,0 +1,354 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#093687" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-title" content="TEDDY X" />
+  <title>TEDDY X 모의거래소</title>
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="icon" href="icon.svg" type="image/svg+xml" />
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body class="m-list">
+  <!-- 상단 헤더 -->
+  <header class="topbar">
+    <div class="brand" data-go="exchange">
+      <span class="brand-mark">TX</span>
+      <span class="brand-name">TEDDY X<small>모의거래소</small></span>
+    </div>
+    <nav class="topnav">
+      <button data-view="exchange" class="active">거래소</button>
+      <button data-view="invest">투자내역</button>
+      <button data-view="manage">자산관리</button>
+    </nav>
+    <div class="top-assets" id="topAssets" title="총 보유자산">
+      <span class="ta-label">총 보유자산</span>
+      <span class="ta-value" id="taValue">-</span>
+      <span class="ta-rate" id="taRate">-</span>
+    </div>
+    <div class="top-actions">
+      <span class="conn" id="connDot" title="실시간 연결 상태"></span>
+      <button class="icon-btn" id="btnSound" title="효과음">🔊</button>
+      <button class="icon-btn" id="btnTheme" title="다크모드">🌙</button>
+    </div>
+  </header>
+
+  <main>
+    <!-- ============ 거래소 ============ -->
+    <section class="view active" id="view-exchange">
+      <div class="ex-main">
+        <!-- 코인 헤더 -->
+        <div class="panel coin-head" id="coinHead">
+          <button class="m-back" data-mtab="list">‹</button>
+          <div class="ch-name">
+            <button class="fav-btn" id="chFav">☆</button>
+            <strong id="chKor">-</strong><span id="chCode">-</span>
+          </div>
+          <div class="ch-price">
+            <span class="ch-trade" id="chPrice">-</span>
+            <span class="ch-change" id="chChange">-</span>
+          </div>
+          <dl class="ch-stats">
+            <div><dt>고가</dt><dd id="chHigh" class="rise">-</dd></div>
+            <div><dt>저가</dt><dd id="chLow" class="fall">-</dd></div>
+            <div><dt>거래대금(24H)</dt><dd id="chVol">-</dd></div>
+            <div><dt>내 보유</dt><dd id="chMine">-</dd></div>
+          </dl>
+        </div>
+
+        <!-- 차트 -->
+        <div class="panel chart-panel">
+          <div class="chart-toolbar">
+            <div class="seg" id="tfSeg">
+              <button data-tf="1">1분</button>
+              <button data-tf="5">5분</button>
+              <button data-tf="15" class="active">15분</button>
+              <button data-tf="60">1시간</button>
+              <button data-tf="240">4시간</button>
+              <button data-tf="D">일</button>
+            </div>
+            <div class="chart-legend" id="chartLegend"></div>
+            <div class="seg small">
+              <button id="zoomOut">－</button>
+              <button id="zoomIn">＋</button>
+            </div>
+          </div>
+          <div class="chart-wrap" id="chartWrap">
+            <canvas id="chart"></canvas>
+            <div class="chart-loading" id="chartLoading">차트 불러오는 중…</div>
+          </div>
+        </div>
+
+        <!-- 호가 + 주문 -->
+        <div class="ex-bottom">
+          <div class="panel ob-panel">
+            <div class="tabs" id="obTabs">
+              <button class="active" data-ob="book">호가</button>
+              <button data-ob="trades">체결</button>
+            </div>
+            <div class="ob-body" id="obBook"></div>
+            <div class="ob-body hidden" id="obTrades"></div>
+          </div>
+
+          <div class="panel order-panel">
+            <div class="tabs order-tabs" id="orderTabs">
+              <button class="active buy" data-side="bid">매수</button>
+              <button class="sell" data-side="ask">매도</button>
+              <button data-side="open">미체결 <em id="openCnt"></em></button>
+            </div>
+            <div class="order-form" id="orderForm">
+              <div class="of-row">
+                <label>주문유형</label>
+                <div class="radio-seg" id="ordType">
+                  <button data-type="limit" class="active">지정가</button>
+                  <button data-type="market">시장가</button>
+                </div>
+              </div>
+              <div class="of-row">
+                <label>주문가능</label>
+                <div class="of-avail"><strong id="ofAvail">0</strong> <span id="ofAvailUnit">KRW</span></div>
+              </div>
+              <div class="of-row" id="rowPrice">
+                <label><span id="lblPrice">매수가격</span><small>(KRW)</small></label>
+                <div class="stepper">
+                  <input id="ofPrice" inputmode="decimal" autocomplete="off" />
+                  <button id="priceDown">－</button>
+                  <button id="priceUp">＋</button>
+                </div>
+              </div>
+              <div class="of-row" id="rowQty">
+                <label>주문수량<small id="ofQtyUnit">(BTC)</small></label>
+                <input id="ofQty" inputmode="decimal" autocomplete="off" placeholder="0" />
+              </div>
+              <div class="pct-row" id="pctRow">
+                <button data-pct="10">10%</button>
+                <button data-pct="25">25%</button>
+                <button data-pct="50">50%</button>
+                <button data-pct="100">최대</button>
+              </div>
+              <div class="of-row" id="rowTotal">
+                <label>주문총액<small>(KRW)</small></label>
+                <input id="ofTotal" inputmode="decimal" autocomplete="off" placeholder="0" />
+              </div>
+              <p class="of-note">최소주문금액 5,000 KRW · 수수료 0.05%</p>
+              <div class="of-actions">
+                <button class="btn ghost" id="ofReset">초기화</button>
+                <button class="btn buy" id="ofSubmit">매수</button>
+              </div>
+            </div>
+            <div class="open-orders hidden" id="openOrders"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 코인 목록 -->
+      <aside class="panel coin-list-panel">
+        <div class="cl-search">
+          <input id="clSearch" placeholder="코인명/심볼 검색" autocomplete="off" />
+        </div>
+        <div class="tabs cl-tabs" id="clTabs">
+          <button class="active" data-list="krw">원화</button>
+          <button data-list="mine">보유</button>
+          <button data-list="fav">관심</button>
+        </div>
+        <div class="cl-head">
+          <span data-sort="name">한글명</span>
+          <span data-sort="price">현재가</span>
+          <span data-sort="rate">전일대비</span>
+          <span data-sort="vol" class="sorted">거래대금</span>
+        </div>
+        <div class="cl-body" id="clBody"><div class="empty">시세 불러오는 중…</div></div>
+      </aside>
+    </section>
+
+    <!-- ============ 투자내역 ============ -->
+    <section class="view" id="view-invest">
+      <div class="panel summary">
+        <div class="sum-top">
+          <div>
+            <p class="muted">보유 KRW</p>
+            <h3 id="sKrw">0</h3>
+          </div>
+          <div>
+            <p class="muted">총 보유자산</p>
+            <h3 id="sTotal">0</h3>
+          </div>
+        </div>
+        <dl class="sum-grid">
+          <div><dt>총 매수</dt><dd id="sBuy">0</dd></div>
+          <div><dt>총 평가손익</dt><dd id="sPnl">0</dd></div>
+          <div><dt>총 평가</dt><dd id="sEval">0</dd></div>
+          <div><dt>총 평가수익률</dt><dd id="sRate">0%</dd></div>
+          <div><dt>주문가능</dt><dd id="sAvail">0</dd></div>
+          <div><dt>누적 실현손익</dt><dd id="sRealized">0</dd></div>
+          <div><dt>투자원금</dt><dd id="sSeed">0</dd></div>
+          <div><dt>원금 대비</dt><dd id="sSeedRate">0%</dd></div>
+        </dl>
+        <div class="goal">
+          <div class="goal-head">
+            <span>🎯 목표 자산 <strong id="goalLabel">-</strong></span>
+            <span id="goalPct">0%</span>
+          </div>
+          <div class="goal-bar"><div id="goalFill"></div></div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-title">
+          <h4>보유자산 포트폴리오</h4>
+        </div>
+        <div class="donut-wrap">
+          <canvas id="donut" width="220" height="220"></canvas>
+          <ul class="donut-legend" id="donutLegend"></ul>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-title"><h4>보유코인</h4></div>
+        <div class="table-wrap">
+          <table class="tbl" id="holdTbl">
+            <thead><tr><th>코인</th><th>보유수량</th><th>매수평균가</th><th>현재가</th><th>매수금액</th><th>평가금액</th><th>평가손익</th><th></th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-title">
+          <h4>🏆 업적 배지</h4><span class="muted" id="badgeCount"></span>
+        </div>
+        <div class="badges" id="badges"></div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-title">
+          <h4>거래내역</h4>
+          <div class="seg small" id="histFilter">
+            <button class="active" data-h="all">전체</button>
+            <button data-h="bid">매수</button>
+            <button data-h="ask">매도</button>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table class="tbl" id="histTbl">
+            <thead><tr><th>체결시간</th><th>코인</th><th>종류</th><th>체결가격</th><th>수량</th><th>거래금액</th><th>수수료</th><th>실현손익</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ 자산관리 (마음대로 컨트롤) ============ -->
+    <section class="view" id="view-manage">
+      <div class="manage-grid">
+        <div class="panel">
+          <div class="panel-title"><h4>💰 원화(KRW) 컨트롤</h4></div>
+          <p class="muted">현재 보유 KRW: <strong id="mKrw">0</strong></p>
+          <div class="quick-btns">
+            <button data-krw="1000000">+100만</button>
+            <button data-krw="10000000">+1,000만</button>
+            <button data-krw="100000000">+1억</button>
+            <button data-krw="1000000000">+10억</button>
+            <button data-krw="-10000000" class="minus">-1,000만</button>
+          </div>
+          <div class="form-line">
+            <input id="mKrwInput" inputmode="numeric" placeholder="원하는 금액 입력" />
+            <button class="btn" id="mKrwSet">이 금액으로 설정</button>
+          </div>
+          <label class="check"><input type="checkbox" id="mSeedSync" checked /> 변경분을 투자원금에도 반영 (수익률 왜곡 방지)</label>
+        </div>
+
+        <div class="panel">
+          <div class="panel-title"><h4>🪙 보유코인 직접 설정</h4></div>
+          <p class="muted">이미 갖고 있는 코인을 원하는 수량·평단가로 넣을 수 있어요.</p>
+          <div class="form-stack">
+            <select id="mCoin"></select>
+            <input id="mQty" inputmode="decimal" placeholder="보유수량" />
+            <div class="form-line">
+              <input id="mAvg" inputmode="decimal" placeholder="매수평균가 (KRW)" />
+              <button class="btn ghost" id="mAvgNow">현재가</button>
+            </div>
+            <div class="form-line">
+              <button class="btn" id="mCoinSet">보유수량 설정</button>
+              <button class="btn ghost danger" id="mCoinDel">삭제</button>
+            </div>
+          </div>
+          <label class="check"><input type="checkbox" id="mCoinSeed" checked /> 매수금액을 투자원금에 반영</label>
+        </div>
+
+        <div class="panel">
+          <div class="panel-title"><h4>🤖 적립식 자동매수 (DCA 봇)</h4></div>
+          <p class="muted">정해진 주기마다 시장가로 자동 매수합니다. 앱이 열려 있는 동안 동작해요.</p>
+          <div class="form-stack">
+            <select id="dCoin"></select>
+            <div class="form-line">
+              <input id="dAmt" inputmode="numeric" placeholder="1회 매수금액 (KRW)" />
+              <select id="dInt">
+                <option value="1">1분마다</option>
+                <option value="5">5분마다</option>
+                <option value="30">30분마다</option>
+                <option value="60">1시간마다</option>
+                <option value="1440">매일</option>
+                <option value="10080">매주</option>
+              </select>
+            </div>
+            <button class="btn" id="dAdd">봇 추가</button>
+          </div>
+          <ul class="dca-list" id="dcaList"></ul>
+        </div>
+
+        <div class="panel">
+          <div class="panel-title"><h4>⚙️ 설정 · 초기화 · 백업</h4></div>
+          <div class="form-stack">
+            <label class="muted">목표 자산 (KRW)</label>
+            <div class="form-line">
+              <input id="sGoal" inputmode="numeric" placeholder="1,000,000,000" />
+              <button class="btn ghost" id="sGoalSet">저장</button>
+            </div>
+            <label class="muted">시작 시드머니로 완전 초기화</label>
+            <div class="form-line">
+              <input id="sSeedInput" inputmode="numeric" placeholder="10,000,000" />
+              <button class="btn danger" id="sReset">전체 초기화</button>
+            </div>
+            <div class="form-line">
+              <button class="btn ghost" id="sExport">백업 내보내기</button>
+              <label class="btn ghost file-btn">백업 불러오기<input type="file" id="sImport" accept="application/json" /></label>
+            </div>
+          </div>
+          <p class="muted tiny">모든 데이터는 이 기기의 브라우저에만 저장됩니다. 서버로 전송되지 않아요.</p>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- 모바일 하단 탭 -->
+  <nav class="bottom-tab" id="bottomTab">
+    <button data-mtab="list" class="active"><span>📋</span>코인목록</button>
+    <button data-mtab="detail"><span>📈</span>차트·주문</button>
+    <button data-mtab="invest"><span>💼</span>투자내역</button>
+    <button data-mtab="manage"><span>⚙️</span>자산관리</button>
+  </nav>
+
+  <!-- 효과 레이어 -->
+  <canvas id="fx"></canvas>
+  <div id="toasts"></div>
+  <div id="floaters"></div>
+
+  <!-- 주문 확인 모달 -->
+  <div class="modal hidden" id="modal">
+    <div class="modal-card">
+      <h4 id="modalTitle"></h4>
+      <div id="modalBody"></div>
+      <div class="modal-actions">
+        <button class="btn ghost" id="modalCancel">취소</button>
+        <button class="btn" id="modalOk">확인</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="js/chart.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
