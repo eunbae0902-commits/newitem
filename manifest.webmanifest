@@ -1,9 +1,17 @@
 {
+  "id": "./",
   "name": "TEDDY X 모의거래소",
   "short_name": "TEDDY X",
+  "description": "실시간 시세 기반 가족 모의 코인 거래소",
+  "lang": "ko",
   "start_url": "./",
+  "scope": "./",
   "display": "standalone",
   "background_color": "#093687",
   "theme_color": "#093687",
-  "icons": [{ "src": "icon.svg", "sizes": "any", "type": "image/svg+xml" }]
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icons/maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
 }

@@ -1274,6 +1274,11 @@
       confetti(80);
     };
     $('#wRedeem').onclick = () => { handleCode($('#wCode').value); $('#wCode').value = ''; };
+    $('#btnInstall').onclick = installApp;
+    $$('.paste-btn').forEach((b) => b.onclick = async () => {
+      const el = $('#' + b.dataset.paste);
+      try { el.value = (await navigator.clipboard.readText()).trim(); } catch (e) { el.focus(); toast('붙여넣기', '입력칸을 길게 눌러 붙여넣어 주세요.', ''); }
+    });
     $('#wReport').onclick = sendReport;
     $('#fInvite').onclick = () => {
       if (!masterOk()) return;
@@ -1327,8 +1332,29 @@
     return onHash;
   }
 
+  /* ---------- 앱 설치 (홈 화면) ---------- */
+  const isStandalone = () => matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+  let installEvt = null;
+  addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); installEvt = e; });
+  addEventListener('appinstalled', () => { installEvt = null; toast('📲 설치 완료!', '홈 화면의 TX 아이콘으로 실행하세요.', 'win'); confetti(80); });
+  async function installApp() {
+    if (installEvt) { installEvt.prompt(); await installEvt.userChoice.catch(() => {}); installEvt = null; return; }
+    const ua = navigator.userAgent;
+    const ios = /iPhone|iPad|iPod/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1);
+    const inApp = /KAKAOTALK|NAVER|Instagram|FBAN|FBAV|Line\//i.test(ua);
+    const steps = inApp
+      ? `<ol class="install-steps"><li>지금은 <b>카톡 등 앱 안의 브라우저</b>예요.</li><li>오른쪽 아래(또는 위) <b>⋮ / 공유</b> → <b>${ios ? 'Safari로 열기' : '다른 브라우저로 열기(Chrome)'}</b></li><li>열린 화면에서 이 버튼을 다시 눌러 주세요.</li></ol>`
+      : ios
+        ? `<ol class="install-steps"><li><b>Safari</b> 아래쪽 <b>공유 버튼(□↑)</b>을 눌러요.</li><li>목록을 내려 <b>홈 화면에 추가</b>를 눌러요.</li><li>오른쪽 위 <b>추가</b> → 홈 화면에 <b>TX 아이콘</b>이 생겨요.</li></ol>`
+        : `<ol class="install-steps"><li><b>Chrome</b> 오른쪽 위 <b>⋮</b> 메뉴를 눌러요.</li><li><b>앱 설치</b> 또는 <b>홈 화면에 추가</b>를 눌러요.</li><li><b>설치</b> → 홈 화면에 <b>TX 아이콘</b>이 생겨요.</li></ol>`;
+    modal('📲 앱으로 설치하기', steps + `<p class="muted tiny" style="margin-top:12px">⚠️ 설치한 앱은 브라우저와 저장공간이 따로일 수 있어요. 가족은 <b>앱을 먼저 설치</b>한 뒤, 초대·지급 링크를 <b>복사해서 앱 안에 붙여넣기</b> 하세요.</p>`, null, '', '확인');
+    $('#modalCancel').classList.add('hidden');
+  }
+
   /** 시작 시 역할 결정: 링크로 들어왔으면 처리, 역할이 없으면 선택 화면 */
   function startFamily(onHash) {
+    document.body.classList.toggle('standalone', isStandalone());
+    if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) navigator.serviceWorker.register('sw.js').catch(() => {});
     applyRole();
     const hasCode = location.hash.startsWith('#tx=');
     if (!S.role && !(hasCode && decodeCode(location.hash)?.p?.t === 'inv')) $('#onboard').classList.remove('hidden');
