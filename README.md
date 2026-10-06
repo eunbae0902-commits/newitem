@@ -10,6 +10,7 @@
 | --- | --- | --- | --- | --- |
 | TEDDY X 모의거래소 | 실시간 시세 기반 가족 모의 코인 거래소 | 루트 | [/newitem/](https://eunbae0902-commits.github.io/newitem/) | 🟢 사용 중 |
 | 하루나 | 마음이 쉬어가는 감정 일기 | [`haruna/`](haruna/) | [/newitem/haruna/](https://eunbae0902-commits.github.io/newitem/haruna/) | 🟢 사용 중 |
+| MD공사 | 매장 개편 공사 일정·점검·이슈 현황판 | [`mdwork/`](mdwork/) | [/newitem/mdwork/](https://eunbae0902-commits.github.io/newitem/mdwork/) | 🧪 실험 중 |
 | 하루나 (SwiftUI) | 하루나의 Xcode 네이티브 버전 | [`Haruna/`](Haruna/README.md) | 웹 주소 없음 | 🎓 졸업 후보 |
 | 브레인핵 | 조직과 시장을 읽는 사고 훈련 | [`brainhack/`](brainhack/) | [/newitem/brainhack/](https://eunbae0902-commits.github.io/newitem/brainhack/) | 🧪 실험 중 |
 
@@ -26,7 +27,7 @@
    - 빌드·배포 방식이 다름 (네이티브 앱, 서버가 필요한 앱)
    - 커져서 한 앱의 수정이 다른 앱에 영향을 줄까 걱정됨
 5. **저장 공간 주의.** 모든 앱이 같은 주소(`eunbae0902-commits.github.io`)를 쓰므로 Safari에서 이 사이트 데이터를 지우면 모든 앱의 기록이 함께 지워집니다.
-   각 앱을 홈 화면에 설치해 쓰고, 앱마다 백업 기능으로 정기 백업하세요. 저장 키는 앱 이름으로 시작하게 합니다(`teddyx.*`, `brainhack-*`).
+   각 앱을 홈 화면에 설치해 쓰고, 앱마다 백업 기능으로 정기 백업하세요. 저장 키는 앱 이름으로 시작하게 합니다(`teddyx.*`, `brainhack-*`, `mdwork-*`).
 
 ---
 
@@ -122,3 +123,19 @@ js/casino.js          카지노 (슬롯·크래시·코인 플립)
 manifest.webmanifest  홈 화면 설치 정보
 icon.svg              앱 아이콘
 ```
+
+---
+
+## MD공사
+
+매장 개편(MD) 공사를 착공부터 오픈까지 한 화면에서 관리하는 **현황판**입니다. 서버 없이 이 기기의 `localStorage`(`mdwork-v1`)에만 저장합니다.
+저장소가 Public이므로 실제 회사 데이터는 코드에 넣지 않고 앱 안에서만 입력합니다.
+
+| 탭 | 내용 |
+| --- | --- |
+| 현황 | 다음 오픈 D-day, 진행·예정·지연·이달 완료 건수, 지금 챙길 경고, 오늘 현장, 2주 내 오픈, 주간 보고 초안 복사 |
+| 공사 | 상태별 목록, 점검 진행률, 야간·화기작업·미해결 이슈 표시 |
+| 일정 | 4주 공정표(간트)와 착공·오픈 일정 |
+| 기준 | 착공 전·공사 중·준공 표준 점검 항목, 야간 작업·영업 중 공사·CEO 보고 수칙 |
+
+**경고 규칙**: 착공 3일 전부터 착공 전 점검 미완료, 오픈 3일 전부터 준공 점검 미완료, 오픈 예정일 경과, 미해결 이슈를 알립니다. 화기작업이 없는 공사는 화기 점검 항목을 빼고 계산합니다.
