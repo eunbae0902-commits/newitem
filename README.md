@@ -1,5 +1,8 @@
 # TEDDY X 모의거래소
 
+> 📱 감정 일기 앱 **하루나**: [`haruna/`](haruna/) 폴더는 Mac 없이 iPhone 홈 화면에 바로 설치하는 웹앱(`https://<아이디>.github.io/newitem/haruna/`),
+> [`Haruna/`](Haruna/README.md) 폴더는 Xcode용 네이티브 SwiftUI 버전입니다.
+
 업비트 스타일의 **개인 전용 가상 코인 거래소**입니다.
 시세·호가·체결·캔들은 업비트 공개 API(실시간 WebSocket)에서 그대로 받아오고,
 돈과 코인은 전부 가상입니다. 서버 없이 브라우저에서만 동작하며 모든 데이터는 이 기기의 `localStorage`에만 저장됩니다.

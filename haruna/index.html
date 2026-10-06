@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
+  <title>하루나</title>
+  <meta name="description" content="마음이 쉬어가는 나만의 기록 공간, 하루나" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <meta name="apple-mobile-web-app-title" content="하루나" />
+  <meta name="theme-color" content="#EEF5E4" media="(prefers-color-scheme: light)" />
+  <meta name="theme-color" content="#1F2B1C" media="(prefers-color-scheme: dark)" />
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
+  <link rel="icon" href="icons/icon-192.png" />
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="stylesheet" href="app.css" />
+</head>
+<body>
+  <main id="view" class="view"></main>
+
+  <nav id="tabbar" class="tabbar" aria-label="탭">
+    <button data-tab="today" class="on"><svg viewBox="0 0 24 24"><path d="M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/></svg><span>오늘</span></button>
+    <button data-tab="records"><svg viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="15.5" rx="2.5" fill="none" stroke-width="2"/><path d="M3.5 10h17M8 3v4M16 3v4" fill="none" stroke-width="2" stroke-linecap="round"/></svg><span>기록</span></button>
+    <button data-tab="stats"><svg viewBox="0 0 24 24"><rect x="4" y="12" width="4" height="8" rx="1"/><rect x="10" y="6" width="4" height="14" rx="1"/><rect x="16" y="9" width="4" height="11" rx="1"/></svg><span>통계</span></button>
+    <button data-tab="favorites"><svg viewBox="0 0 24 24"><path d="m12 3 2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1-4.4-4.3 6.1-.9z"/></svg><span>소중한 기록</span></button>
+  </nav>
+
+  <section id="page" class="page" aria-hidden="true"></section>
+  <div id="backdrop" class="backdrop"></div>
+  <section id="sheet" class="sheet" role="dialog" aria-modal="true"></section>
+  <section id="viewer" class="viewer"></section>
+  <section id="lock" class="lock"></section>
+  <div id="toast" class="toast" role="status"></div>
+
+  <script src="app.js"></script>
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));
+    }
+  </script>
+</body>
+</html>
