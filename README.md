@@ -2,6 +2,9 @@
 
 > 📱 감정 일기 앱 **하루나**: [`haruna/`](haruna/) 폴더는 Mac 없이 iPhone 홈 화면에 바로 설치하는 웹앱(`https://<아이디>.github.io/newitem/haruna/`),
 > [`Haruna/`](Haruna/README.md) 폴더는 Xcode용 네이티브 SwiftUI 버전입니다.
+>
+> 🧠 사고 훈련 앱 **브레인핵**: [`brainhack/`](brainhack/) 폴더. 조직과 시장을 읽는 멘탈 모델 훈련(매일 루틴·훈련 도구 6종·결정 일지·사고 모델 라이브러리)을
+> iPhone 홈 화면에 설치해 씁니다(`https://<아이디>.github.io/newitem/brainhack/`).
 
 업비트 스타일의 **개인 전용 가상 코인 거래소**입니다.
 시세·호가·체결·캔들은 업비트 공개 API(실시간 WebSocket)에서 그대로 받아오고,
