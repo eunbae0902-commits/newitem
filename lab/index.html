@@ -1,0 +1,182 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>TEDDY LAB</title>
+  <meta name="description" content="newitem 아이디어 실험실의 모든 앱을 한 화면에서 고르는 허브" />
+  <meta name="theme-color" content="#F1F2EE" media="(prefers-color-scheme: light)" />
+  <meta name="theme-color" content="#121512" media="(prefers-color-scheme: dark)" />
+  <link rel="icon" href="../brainhack/icons/icon-192.png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500;600&family=IBM+Plex+Sans+KR:wght@400;500;700&display=swap" />
+  <style>
+    /* 레이아웃: 실험실 작업대. 한 열 카드 목록, 넓은 화면에서는 두 열. */
+    :root {
+      --bg: #F1F2EE; --surface: #FFFFFF; --ink: #161A16; --ink-2: #4D554D; --ink-3: #868E86; --line: #DDE0D9;
+      --accent: #2F6B4F; --accent-soft: #E1EEE6;
+      --live: #2F6B4F; --live-soft: #E1EEE6; --test: #A0661A; --test-soft: #F6EBDA; --grad: #4B4FB8; --grad-soft: #E6E7F8;
+      --f-sans: "IBM Plex Sans KR", -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Noto Sans KR", sans-serif;
+      --f-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+      color-scheme: light;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root:not([data-theme="light"]) {
+        --bg: #121512; --surface: #1A1E1A; --ink: #E8ECE6; --ink-2: #AEB6AC; --ink-3: #737C72; --line: #2A302A;
+        --accent: #7CC4A0; --accent-soft: #1D2E25;
+        --live: #7CC4A0; --live-soft: #1D2E25; --test: #E2AA5A; --test-soft: #33291A; --grad: #9EA2F2; --grad-soft: #24254A;
+        color-scheme: dark;
+      }
+    }
+    :root[data-theme="dark"] {
+      --bg: #121512; --surface: #1A1E1A; --ink: #E8ECE6; --ink-2: #AEB6AC; --ink-3: #737C72; --line: #2A302A;
+      --accent: #7CC4A0; --accent-soft: #1D2E25;
+      --live: #7CC4A0; --live-soft: #1D2E25; --test: #E2AA5A; --test-soft: #33291A; --grad: #9EA2F2; --grad-soft: #24254A;
+      color-scheme: dark;
+    }
+    * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+    html, body { margin: 0; background: var(--bg); color: var(--ink); }
+    body { font-family: var(--f-sans); font-size: 16px; line-height: 1.55; -webkit-text-size-adjust: 100%; }
+    a { color: inherit; }
+    button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; }
+    :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+    h1, h2 { margin: 0; text-wrap: balance; }
+    p { margin: 0; }
+
+    .wrap {
+      max-width: 860px; margin: 0 auto;
+      padding-inline: 16px;
+      padding-block: calc(env(safe-area-inset-top, 0px) + 28px) calc(env(safe-area-inset-bottom, 0px) + 40px);
+      display: flex; flex-direction: column; gap: 22px;
+    }
+    .label { font-family: var(--f-mono); font-size: 11px; font-weight: 600; letter-spacing: .12em; text-transform: uppercase; color: var(--ink-3); }
+
+    header { display: grid; gap: 8px; }
+    header .label { color: var(--accent); }
+    header h1 { font-size: clamp(30px, 8vw, 44px); font-weight: 700; letter-spacing: -.03em; line-height: 1.1; }
+    header p { color: var(--ink-2); max-width: 34em; }
+
+    .bench { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+    .bench .count { font-family: var(--f-mono); font-size: 13px; color: var(--ink-3); margin-left: auto; }
+    .seg button {
+      min-height: 36px; padding: 0 14px; border-radius: 999px; font-size: 14px; font-weight: 500;
+      border: 1px solid var(--line); color: var(--ink-2); background: var(--surface);
+    }
+    .seg button.on { border-color: var(--ink); color: var(--bg); background: var(--ink); }
+
+    .apps { display: grid; grid-template-columns: 1fr; gap: 12px; }
+    @media (min-width: 640px) { .apps { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+    .app {
+      background: var(--surface); border: 1px solid var(--line); border-radius: 20px; padding: 16px;
+      display: grid; grid-template-columns: 64px minmax(0, 1fr); gap: 4px 14px; align-content: start;
+    }
+    .app img { width: 64px; height: 64px; border-radius: 15px; grid-row: span 2; border: 1px solid var(--line); background: var(--bg); }
+    .app .top { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-width: 0; }
+    .app h2 { font-size: 19px; letter-spacing: -.02em; }
+    .app .desc { color: var(--ink-2); font-size: 14px; }
+    .app .path { grid-column: 1 / -1; margin-top: 10px; font-family: var(--f-mono); font-size: 12px; color: var(--ink-3); overflow-wrap: anywhere; }
+    .app .actions { grid-column: 1 / -1; display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+    .btn {
+      display: inline-flex; align-items: center; justify-content: center; min-height: 42px; padding: 0 16px; border-radius: 12px;
+      font-weight: 700; font-size: 15px; text-decoration: none; background: var(--accent); color: var(--bg); flex: 1 1 auto;
+    }
+    .btn.ghost { background: transparent; color: var(--ink); border: 1px solid var(--line); flex: 0 1 auto; }
+    .chip { font-size: 12px; font-weight: 500; padding: 2px 9px; border-radius: 999px; white-space: nowrap; }
+    .chip.live { background: var(--live-soft); color: var(--live); }
+    .chip.test { background: var(--test-soft); color: var(--test); }
+    .chip.grad { background: var(--grad-soft); color: var(--grad); }
+
+    .notes { display: grid; gap: 12px; grid-template-columns: 1fr; }
+    @media (min-width: 640px) { .notes { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+    .note { border-top: 2px solid var(--ink); padding-top: 12px; display: grid; gap: 8px; min-width: 0; }
+    .note h2 { font-size: 16px; }
+    .note ol, .note ul { margin: 0; padding-left: 20px; display: grid; gap: 4px; color: var(--ink-2); font-size: 14px; }
+    .note b { color: var(--ink); }
+    footer { font-size: 12px; color: var(--ink-3); }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <span class="label">newitem · idea lab</span>
+      <h1>TEDDY LAB</h1>
+      <p>떠오른 아이디어를 바로 앱으로 만들어 보는 실험실입니다. 쓰고 싶은 앱을 고르세요. 매일 쓰는 앱은 Safari에서 열어 홈 화면에 추가하면 앱처럼 실행됩니다.</p>
+    </header>
+
+    <div class="bench">
+      <div class="seg" role="tablist" aria-label="상태로 거르기" id="filter"></div>
+      <span class="count" id="count"></span>
+    </div>
+
+    <main class="apps" id="apps"></main>
+
+    <section class="notes">
+      <div class="note">
+        <h2>홈 화면에 설치하기</h2>
+        <ol>
+          <li>앱을 <b>Safari</b>로 엽니다.</li>
+          <li><b>공유</b> 버튼 → <b>홈 화면에 추가</b> → <b>추가</b>.</li>
+          <li>앱마다 따로 설치합니다. 이 허브는 고르는 화면이라 설치하지 않아도 됩니다.</li>
+        </ol>
+      </div>
+      <div class="note">
+        <h2>기록 지키기</h2>
+        <ul>
+          <li>모든 앱이 같은 주소를 써서, Safari에서 이 사이트 데이터를 지우면 <b>모든 앱 기록이 함께</b> 지워집니다.</li>
+          <li>각 앱의 백업 기능으로 한 달에 한 번 백업하세요.</li>
+        </ul>
+      </div>
+    </section>
+
+    <footer>앱 추가와 졸업 규칙은 저장소 README의 "실험실 운영 규칙"을 따릅니다.</footer>
+  </div>
+
+  <script>
+    // 앱을 추가하거나 상태가 바뀌면 이 목록과 README의 앱 목록을 함께 고칩니다.
+    const APPS = [
+      { name: 'TEDDY X', full: 'TEDDY X 모의거래소', status: 'live', icon: '../icons/icon-192.png', href: '../',
+        desc: '실시간 업비트 시세로 연습하는 가족 모의 코인 거래소. DCA 봇, 가족 모드, 카지노.', path: '/newitem/' },
+      { name: '하루나', full: '하루나', status: 'live', icon: '../haruna/icons/icon-192.png', href: '../haruna/',
+        desc: '마음이 쉬어가는 감정 일기. 오늘의 기분, 캘린더, 통계, 소중한 기록.', path: '/newitem/haruna/' },
+      { name: '브레인핵', full: '브레인핵', status: 'test', icon: '../brainhack/icons/icon-192.png', href: '../brainhack/',
+        desc: '조직과 시장을 읽는 사고 훈련. 매일 루틴, 훈련 도구 6종, 결정 일지.', path: '/newitem/brainhack/' },
+      { name: '하루나 SwiftUI', full: '하루나 (SwiftUI)', status: 'grad', icon: '../haruna/icons/icon-192.png',
+        href: 'https://github.com/eunbae0902-commits/newitem/tree/main/Haruna', external: true,
+        desc: '하루나의 Xcode 네이티브 버전. Mac에서 빌드해 설치합니다. 별도 저장소로 졸업할 후보.', path: 'Haruna/ (웹 주소 없음)' },
+    ];
+    const STATUS = { live: '사용 중', test: '실험 중', grad: '졸업 후보' };
+    const FILTERS = [['all', '전체'], ['live', '사용 중'], ['test', '실험 중'], ['grad', '졸업']];
+    const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+    let filter = 'all';
+    try { filter = localStorage.getItem('lab.filter') || 'all'; } catch (e) { /* 저장소를 못 쓰면 전체 보기 */ }
+    if (!FILTERS.some(([k]) => k === filter)) filter = 'all';
+
+    function render() {
+      document.getElementById('filter').innerHTML = FILTERS.map(([k, label]) =>
+        `<button type="button" role="tab" aria-selected="${k === filter}" class="${k === filter ? 'on' : ''}" data-f="${k}">${label}</button>`).join('');
+      const list = APPS.filter((a) => filter === 'all' || a.status === filter);
+      document.getElementById('count').textContent = `${list.length} / ${APPS.length} apps`;
+      document.getElementById('apps').innerHTML = list.map((a) => `
+        <article class="app">
+          <img src="${esc(a.icon)}" alt="" width="64" height="64">
+          <div class="top"><h2>${esc(a.full)}</h2><span class="chip ${a.status}">${STATUS[a.status]}</span></div>
+          <p class="desc">${esc(a.desc)}</p>
+          <div class="path">${esc(a.path)}</div>
+          <div class="actions">
+            <a class="btn ${a.external ? 'ghost' : ''}" href="${esc(a.href)}"${a.external ? ' target="_blank" rel="noopener"' : ''}>${a.external ? 'GitHub에서 보기' : `${esc(a.name)} 열기`}</a>
+          </div>
+        </article>`).join('');
+    }
+    document.getElementById('filter').addEventListener('click', (e) => {
+      const b = e.target.closest('button[data-f]');
+      if (!b) return;
+      filter = b.dataset.f;
+      try { localStorage.setItem('lab.filter', filter); } catch (err) { /* 무시 */ }
+      render();
+    });
+    render();
+  </script>
+</body>
+</html>
