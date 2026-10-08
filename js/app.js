@@ -1199,6 +1199,10 @@
     const sh = $('#shShare');
     if (sh) sh.onclick = () => navigator.share({ title: 'TEDDY X', text: title, url }).catch(() => {});
   }
+  /** 서명/키 작업 실패를 조용히 삼키지 않고 화면에 보여줌 */
+  const guard = (label, fn) => async (...a) => {
+    try { return await fn(...a); } catch (e) { console.error(e); fail(`${label} 실패: ${e && (e.message || e.name) || e}`); }
+  };
   async function issueInvite(mem) {
     const F = S.family;
     const code = await signCode({ t: 'inv', fam: F.id, mn: F.mn, pk: F.pub, mid: mem.mid, name: mem.name, emoji: mem.emoji, amt: mem.start, n: uid(), ts: Date.now() });
@@ -1325,7 +1329,8 @@
     $('#obJoin').onclick = () => { $('#obJoinBox').classList.remove('hidden'); $('#obCode').focus(); };
     $('#obJoinGo').onclick = () => handleCode($('#obCode').value);
     $('#obMaster').onclick = async () => {
-      await becomeMaster();
+      if (!(window.crypto && crypto.subtle)) return fail('이 브라우저는 보안 기능(암호화)을 지원하지 않아요. Safari/Chrome 최신 버전에서 열어주세요.');
+      try { await becomeMaster(); } catch (e) { return fail(`마스터 열쇠 생성 실패: ${e.message || e.name}`); }
       $('#onboard').classList.add('hidden');
       refreshAll();
       toast('👑 마스터 모드 시작', '자산관리 탭에서 가족을 초대해 보세요.', 'win');
@@ -1347,7 +1352,7 @@
       S.family.members.push(mem);
       $('#fName').value = ''; $('#fAmt').value = '';
       save(); renderFamily();
-      issueInvite(mem);
+      guard('초대 링크 생성', issueInvite)(mem);
     };
     $('#fMembers').onclick = (e) => {
       const b = e.target.closest('button[data-act]'); if (!b) return;
@@ -1356,13 +1361,13 @@
       const mem = F.members.find((m) => m.mid === li.dataset.mid); if (!mem) return;
       const amt = Math.round(parseNum(li.querySelector('.fm-amt').value));
       const act = b.dataset.act;
-      if (act === 'invite') return issueInvite(mem);
+      if (act === 'invite') return guard('초대 링크 생성', issueInvite)(mem);
       if (act === 'casino') {
         return modal(`🎰 ${mem.name}님 카지노 설정`, `<p class="muted">가상 머니 카지노를 허용할지 정해요. 허용하면 <b>하루 손실 한도</b>를 걸 수 있어요.</p>
           <div class="form-line" style="margin-top:10px"><input id="csLimit" inputmode="numeric" placeholder="하루 손실 한도 (예: 100,000 · 비우면 무제한)" value="${mem.casino?.limit ? fmtKRW(mem.casino.limit) : ''}" /></div>
           <label class="check"><input type="checkbox" id="csOn" checked /> 카지노 허용 (체크 해제 후 만들면 잠금 코드)</label>`, () => {
           const allow = $('#csOn').checked, limit = Math.round(parseNum($('#csLimit').value));
-          issueGrant(mem, 'casino', allow ? limit : 0, '', { on: allow });
+          guard('카지노 코드 생성', issueGrant)(mem, 'casino', allow ? limit : 0, '', { on: allow });
         }, '', '코드 만들기');
       }
       if (act === 'del') {
@@ -1371,14 +1376,14 @@
         }, 'danger');
       }
       if (amt <= 0) return fail('금액을 입력하세요.');
-      if (act === 'add') return issueGrant(mem, 'add', amt, '마스터 지급');
-      if (act === 'sub') return issueGrant(mem, 'add', -amt, '마스터 회수');
+      if (act === 'add') return guard('지급 코드 생성', issueGrant)(mem, 'add', amt, '마스터 지급');
+      if (act === 'sub') return guard('회수 코드 생성', issueGrant)(mem, 'add', -amt, '마스터 회수');
       if (act === 'reset') {
-        return modal('계정 초기화 코드', `<p>${mem.emoji} ${mem.name}님의 코인·거래내역을 모두 지우고<br><b>${fmtKRW(amt)}원</b>으로 새로 시작하게 할까요?</p>`, () => issueGrant(mem, 'reset', amt, '새 출발'), 'danger');
+        return modal('계정 초기화 코드', `<p>${mem.emoji} ${mem.name}님의 코인·거래내역을 모두 지우고<br><b>${fmtKRW(amt)}원</b>으로 새로 시작하게 할까요?</p>`, () => guard('초기화 코드 생성', issueGrant)(mem, 'reset', amt, '새 출발'), 'danger');
       }
     };
     $('#fReportAdd').onclick = () => { handleCode($('#fReportIn').value); $('#fReportIn').value = ''; };
-    $('#fBoardShare').onclick = shareBoard;
+    $('#fBoardShare').onclick = guard('랭킹 공유', shareBoard);
     $('#sPinSet').onclick = async () => {
       if (!masterOk()) return;
       const v = $('#sPin').value.trim();
