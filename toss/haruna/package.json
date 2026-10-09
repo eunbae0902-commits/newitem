@@ -1,0 +1,14 @@
+{
+  "name": "haruna-apps-in-toss",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node ../scripts/dev.mjs 5173",
+    "build": "node ../scripts/build.mjs && ait build",
+    "deploy": "ait deploy"
+  },
+  "devDependencies": {
+    "@apps-in-toss/web-framework": "^3.8.0"
+  }
+}
